@@ -19,17 +19,9 @@ def entropy(p_vec, pseudo=0.00001):
         return np.sum([-(p)*np.log((p)) for p in [(x/np.sum(p_vec))+pseudo for x in p_vec]])
     else:
         return 0
-def gini(p_vec):
-    if np.sum(p_vec) != 0:
-        return (1 - np.sum([(x/np.sum(p_vec))**2 for x in p_vec]))
-    else:
-        return .5 ## this is not correct, but in the end, it shouldn't matter bc it gets weighted by 0. BE CAREFUL IN FUTURE USE
 
 def two_class_weighted_entropy(counts, pseudo=.01):
     return (entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
-
-def two_class_weighted_gini(counts):
-    return (gini([counts[0], counts[1]])*np.sum(counts[0:2]) + gini([counts[2], counts[3]])*np.sum(counts[2:4]))/np.sum(counts)
 
 def flip_beta(beta):
     flipped_beta = np.zeros(len(beta))
@@ -37,21 +29,18 @@ def flip_beta(beta):
         flipped_beta[4*i:(4*i+4)] = beta[4*i:(4*i+4)][::-1]                                         
     return flipped_beta
 
-# CLASSIFY SEQUENCES
-#def classify_sequences(X, beta, motif_length, sequence_length):
-#
-#    X_matrices = [x_to_matrix(x, motif_length, sequence_length) for x in np.array(X)]
-#    a = np.array([np.dot(x, beta) for x in X_matrices])
-#    sig_sum = [np.sum(single_sigmoid_vectorized(x, 100, 0.9)) for x in a]
-#
-#    return threshold(single_sigmoid_vectorized(sig_sum, 100, 0.9))
+def faster_dot(X_matrices, beta):
+    result = np.empty((X_matrices.shape[0],X_matrices.shape[1]))
+    for i in range(len(X_matrices)):
+        np.dot(X_matrices[i], beta, result[i])
+    return result
 
-#def classify_sequences(X_matrices, beta, motif_length, sequence_length):
-#    return np.any(np.dot(X_matrices, beta) > 1, axis=1).astype(int)
+# CLASSIFY SEQUENCES
 
 def classify_sequences(X_matrices, X_matrices_rc, beta):
     #return np.logical_or(np.any(np.dot(X_matrices, beta) > 1, axis=1), np.any(np.dot(X_matrices_rc, beta) > 1, axis=1)).astype(int)
-    return np.logical_or(np.any(np.array([np.dot(x, beta) for x in X_matrices]) > 1, axis=1), np.any(np.array([np.dot(x, beta) for x in X_matrices_rc]) > 1, axis=1)).astype(int)
+    #return np.logical_or(np.any(np.array([np.dot(x, beta) for x in X_matrices]) > 1, axis=1), np.any(np.array([np.dot(x, beta) for x in X_matrices_rc]) > 1, axis=1)).astype(int)
+    return np.logical_or(np.any(faster_dot(X_matrices, beta) > 1, axis=1), np.any(faster_dot(X_matrices_rc, beta) > 1, axis=1)).astype(int)
     
 def classify_sequence(x, beta, motif_length, sequence_length):
     x_matrix = x_to_matrix(x, motif_length, sequence_length)
@@ -59,69 +48,12 @@ def classify_sequence(x, beta, motif_length, sequence_length):
 
     
 
-#def classify_sequence(x, beta, motif_length, sequence_length):
-#
-#    x_matrix = x_to_matrix(x, motif_length, sequence_length)
-#    a = np.dot(x_matrix, beta)
-#    sig_sum = np.sum(single_sigmoid_vectorized(a, 100, 0.9))
-#
-#    return threshold(single_sigmoid_vectorized(sig_sum, 100, 0.9))
-
-
 @vectorize('float64(float64)')
 def threshold(value):
     if value > 0.5:
         return 1
     else:
         return 0
-
-
-####################
-## Beta functions ##
-####################
-def random_change(Beta, std=0.5):
-    return [b+np.random.normal(scale=std) for b in Beta]
-
-def small_change(Beta, std=0.2):
-    length = int(len(Beta)/4)
-    random_base = np.random.choice(range(length))
-    new_Beta = copy.deepcopy(Beta)
-    new_Beta[random_base*4:random_base*4+4] = [b + np.random.normal(scale=std) for b in new_Beta[random_base*4:random_base*4+4]]
-    return new_Beta
-
-#def medium_change(Beta):
-#    length = int(len(Beta)/4)
-#    for base in range(length):
-#        new_Beta = copy.deepcopy(Beta)
-        
-
-def acceptable_beta(Beta, thresh):
-    stride = Beta[0].itemsize
-    Beta_ndarray = as_strided(Beta, shape=(6,4), strides=[stride*4,stride])
-    return all(np.sum(np.abs(Beta_ndarray), axis=1) < thresh)
-
-def get_new_beta(Beta, update_func, thresh, *args):
-    while True:
-        new_Beta = update_func(Beta, *args)
-        #print(Beta)
-        #print("TRYING!")
-        if acceptable_beta(new_Beta, thresh):
-            break
-    return new_Beta
-
-def get_new_betas(Beta_vec, update_func, thresh, *args):
-    return [get_new_beta(b, update_func, thresh, *args) for b in Beta_vec]
-    
-# function that creates random initial beta
-def random_beta(motif_length):
-    output = []
-    for i in range(motif_length):
-        temp = np.zeros(4)
-        num = np.random.choice(range(4))
-        temp[num] = np.random.normal(loc=1/(motif_length-1), scale=0.01)
-        output.extend(temp)
-
-    return output
 
 
 
@@ -139,6 +71,15 @@ def return_counts(labels, classifications):
 
     return [true1, false1, true0, false0]
 
+def return_counts_general(labels, classifications, classes):
+    zipped = list(zip(labels, classifications))
+    true_first_class = zipped.count((classes[0], classes[0]))
+    false_first_class = zipped.count((classes[1], classes[0]))
+    true_second_class = zipped.count((classes[1], classes[1]))
+    false_second_class = zipped.count((classes[0], classes[1]))
+
+    return [true_first_class, false_first_class, true_second_class, false_second_class]
+
 def return_weightedcounts(labels, classifications, weights):
     zipped = list(zip(list(zip(labels, classifications)), weights))
     true1 = np.sum([a[1] for a in zipped if a[0]==(1,1)])
@@ -147,34 +88,6 @@ def return_weightedcounts(labels, classifications, weights):
     false0 = np.sum([a[1] for a in zipped if a[0]==(1,0)])
     return [true1, false1, true0, false0]
 
-
-
-#######################################
-##### GRADIENT DESCENT FUNCTIONS ######
-#######################################
-def single_sigmoid(x, alpha=100, offset=0.9):
-    return 1/(1 + np.exp(-alpha*(x-offset)))
-
-@vectorize('float64(float64, float64, float64)')
-def single_sigmoid_vectorized(x, alpha=100, offset=0.9):
-    return 1/(1 + np.exp(-alpha*(x-offset)))
-
-@vectorize('float64(float64)')
-def simplified_sigmoid(x):
-    return 1/(1 + x)
-
-def single_sigmoid_deriv(x, alpha=100, offset=0.9):
-    exponent = np.exp(-alpha*(x-offset))
-    return (alpha * exponent) / (1 + exponent)**2
-
-@vectorize('float64(float64, float64, float64)')
-def single_sigmoid_deriv_vectorized(x, alpha=100, offset=0.9):
-    exponent = np.exp(-alpha*(x-offset))
-    return (alpha * exponent) / (1 + exponent)**2
-
-@vectorize('float64(float64, float64)')
-def simplified_sigmoid_deriv(x, alpha):
-    return (alpha * x)/((1 + x)**2)
 
 
 
@@ -188,152 +101,6 @@ def x_to_matrix(x, motif_length, sequence_length):
 
     #print('size', size)
     return as_strided(numpy_arrayx, shape = [sequence_length - motif_length, motif_length*4], strides = [size*4,size])
-
-
-### returns the sum of all the sigmoids of all subsequences
-def sum_sigmoid_sequence(xdotbeta, motif_length, sequence_length):
-
-    #x_matrix = x_to_matrix(x, motif_length, sequence_length)
-    vectorized_single_sigmoid = np.vectorize(single_sigmoid)
-
-    return np.sum(vectorized_single_sigmoid(xdotbeta, alpha=100, offset=0.9))
-
-@jit
-def better_sum_sigmoid_sequence(x, beta, motif_length, sequence_length):
-    x_matrix = x_to_matrix(x, motif_length, sequence_length)
-
-    output = 0
-    for m in np.dot(x_matrix, beta):
-        output += m
-
-    return output
-
-
-
-def sum_sigmoid_deriv_sequence(x, beta, motif_length, sequence_length):
-
-    x_matrix = x_to_matrix(x, motif_length, sequence_length)
-    vectorized_single_sigmoid_deriv = np.vectorize(single_sigmoid_deriv)    
-
-    return np.sum(np.dot(np.diag(vectorized_single_sigmoid_deriv(np.dot(x_matrix, beta), alpha=100, offset=0.9)), x_matrix), 
-            axis=0)
-
-
-
-def gradient(X, y, beta, motif_length, sequence_length):
-
-    X_positive = X[y==1]
-    X_negative = X[y==0]
-
-
-    A = [1, 0, 0, 0]
-    C = [0, 1, 0, 0]
-    G = [0, 0, 1, 0]
-    T = [0, 0, 0, 1]
-    nucleotides = [A, C, G, T]
-
-    combinations = [[item for sublist in p for item in sublist] for p in itertools.product(nucleotides, repeat=6)]
-    combinations = ["".join([str(x) for x in combo]) for combo in combinations]
-
-    combination_lookupvalues = np.exp(-100 * (np.dot(combinations, beta) - 0.9))
-
-    lookuptable = dict(zip(combinations, combination_lookupvalues))
-
-
-    total = []
-
-    p = np.sum([single_sigmoid(sum_sigmoid_sequence(lookuptable[x_to_string(X.ix[i])], motif_length, sequence_length)) for i in y[y==1].index.values])
-    n = np.sum([single_sigmoid(sum_sigmoid_sequence(lookuptable[x_to_string(X.ix[i])], beta, motif_length, sequence_length)) for i in y[y==0].index.values])
-
-    P = len(y[y==1])
-    N = len(y[y==0])
-
-    print(p, n, P-p, N-n)
-
-    p_factor = (y==0).apply(lambda x: int(x))*(np.log(n/(N-n))-np.log((p+n)/(P+N-p-n)))+(y==1).apply(lambda x: int(x))*(np.log(p/(P-p))-np.log((p+n)/(P+N-p-n)))
-
-
-    for x in np.array(X):
-        S = sum_sigmoid_sequence(x, beta, motif_length, sequence_length)
-        first_term = single_sigmoid_deriv(S)
-        second_term = sum_sigmoid_deriv_sequence(x, beta, motif_length, sequence_length)
-
-        total.append(first_term * second_term)
-
-    first = entropy([P, N])
-    second = two_class_weighted_entropy([p, n, N-n, P-p])
-
-    output = np.dot(np.array(p_factor), np.array(total))
-    return output/(np.sum(np.abs(output))*8) , (first - second)
-
-def newnewgradient(X_matrices, y, beta, motif_length, sequence_length, step_size=1/50):
-
-    #X_matrices = [x_to_matrix(x, motif_length, sequence_length) for x in np.array(X)]
-    a = np.array([np.dot(x, beta) for x in X_matrices])
-    sig_sum = [np.sum(single_sigmoid_vectorized(x, 100, 0.9)) for x in a]
-    b = [single_sigmoid_deriv_vectorized(x, 100, 0.9) for x in a]
-    c = [np.sum(X_matrices[i] * b[i][:,np.newaxis], axis=0) for i in range(len(X_matrices))]
-    d = [single_sigmoid_deriv(x) for x in sig_sum]
-
-    p = pd.Series(sig_sum)[(y==1).as_matrix()].apply(single_sigmoid, args=(100,0.9)).sum()
-    n = pd.Series(sig_sum)[(y==0).as_matrix()].apply(single_sigmoid, args=(100,0.9)).sum()
-
-    P = len(y[y==1])
-    N = len(y[y==0])
-
-    p_factor = (y==0).apply(lambda x: int(x))*(np.log(n/(N-n))-np.log((p+n)/(P+N-p-n)))+(y==1).apply(lambda x: int(x))*(np.log(p/(P-p))-np.log((p+n)/(P+N-p-n)))
-
-    gradient = np.sum((c * np.array(d)[:, np.newaxis]) * p_factor[:, np.newaxis], axis=0)
-
-    return (gradient/(np.sqrt(np.dot(gradient,gradient)) * (1/step_size))), [p, n, N-n, P-p]
-
-def weightedgradient(X_matrices, y, weights, beta, motif_length, sequence_length, step_size=1/50):
-    weights_series = pd.Series(weights)
-
-    #X_matrices = [x_to_matrix(x, motif_length, sequence_length) for x in np.array(X)]
-    a = np.array([np.dot(x, beta) for x in X_matrices])
-    sig_sum = [np.sum(single_sigmoid_vectorized(x, 100, 0.9)) for x in a]
-    b = [single_sigmoid_deriv_vectorized(x, 100, 0.9) for x in a]
-    c = [np.sum(X_matrices[i] * b[i][:,np.newaxis], axis=0) for i in range(len(X_matrices))]
-    d = [single_sigmoid_deriv(x) for x in sig_sum] * weights
-    #print(len(d))
-
-    p = (pd.Series(sig_sum)[(y==1)].apply(single_sigmoid, args=(100,0.9)) * weights[y==1]).sum()
-    n = (pd.Series(sig_sum)[(y==0)].apply(single_sigmoid, args=(100,0.9)) * weights[y==0]).sum()
-
-    #print(p, n)
-
-    P = weights_series[y==1].sum()
-    N = weights_series[y==0].sum()
-
-    #p_factor = (y==0).apply(lambda x: int(x))*(np.log(n/(N-n))-np.log((p+n)/(P+N-p-n)))+(y==1).apply(lambda x: int(x))*(np.log(p/(P-p))-np.log((p+n)/(P+N-p-n)))
-    p_factor = (y==0)*(np.log(n/(N-n))-np.log((p+n)/(P+N-p-n)))+(y==1)*(np.log(p/(P-p))-np.log((p+n)/(P+N-p-n)))
-
-    gradient = np.sum((c * np.array(d)[:, np.newaxis]) * p_factor[:, np.newaxis], axis=0)
-
-    #return (gradient/np.sum(np.abs(gradient) * 15)), [p, n, N-n, P-p]
-    return (gradient/(np.sqrt(np.dot(gradient,gradient)) * (1/step_size))), [p, n, N-n, P-p]
-
-
-def Information_Gain(X, y, beta, motif_length, sequence_length):
-
-    p = np.sum([single_sigmoid(sum_sigmoid_sequence(X.ix[i], beta, motif_length, sequence_length)) for i in y[y==1].index.values])
-    n = np.sum([single_sigmoid(sum_sigmoid_sequence(X.ix[i], beta, motif_length, sequence_length)) for i in y[y==0].index.values])
-
-    P = len(y[y==1])
-    N = len(y[y==0])
-
-    first = entropy([P, N])
-    second = two_class_weighted_entropy([p, n, P-p, N-n])
-
-    return first - second
-
-
-def acceptance_probability(initial, final, T):
-    return np.exp((initial - final)/T)
-
-
-
 
 #### N GRAM COUNTIN #####
 #def getSequenceNgrams(sequence):
@@ -367,8 +134,9 @@ def normalize_dict(d):
     return d_copy
 
 
-def _get_member_scores(X_matrices, X_matrices_rc, y, m):
-            return two_class_weighted_entropy(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, m)))
+def _get_member_scores(X_matrices, X_matrices_rc, y, classes, m):
+            #return two_class_weighted_entropy(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, m)))
+            return two_class_weighted_entropy(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, m), classes))
 
 #########################
 ### CLASS DEFINITIONS ###
@@ -397,7 +165,7 @@ class Node:
         self.terminal = status
 
 
-    def fit(self, X_matrices, X_matrices_RC, y, weights, iterations, step_size):
+    def gradientfit(self, X_matrices, X_matrices_RC, y, weights, iterations, step_size):
         data_size = len(X_matrices)
         labels = y
 
@@ -486,9 +254,9 @@ class Node:
                 members = multivariate_normal.rvs(mean=mu, cov=cov, size=size)
 
             print('calculating scores for samples')
-            #member_scores = np.array([self.loss_func(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, member))) for member in members])
-            with Pool(num_process) as p:
-                member_scores = np.array(p.map(func, members))
+            member_scores = np.array([self.loss_func(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, member))) for member in members])
+            #with Pool(num_process) as p:
+            #    member_scores = np.array(p.map(func, members))
 
             ##Get the top samples##
             print('getting best scores')
@@ -533,9 +301,6 @@ class Node:
         else:
             print('nah we good')
             
-
-        
-
 ### everything here and below copied from fit
         classification = classify_sequences(X_matrices, X_matrices_rc, self.beta)
         print("counts...", return_counts(y, classification))
@@ -559,24 +324,6 @@ class Node:
         self.right_child_output = final_counts[3] / (final_counts[2] + final_counts[3])
 
 
-
-            
-        
-
-
-    #def split_points(self, X_matrices, X_matrices_rc, y, weights):
-
-    #    classification = classify_sequences(X_matrices, X_matrices_rc, self.beta)
-
-    #    left_split = np.array(X_matrices)[classification==1]
-    #    left_split_labels = np.array(y)[classification == 1]
-    #    left_split_weights = weights[classification==1]
-
-    #    right_split = np.array(X_matrices)[classification==0]
-    #    right_split_labels = np.array(y)[classification == 0]
-    #    right_split_weights = weights[classification==0]
-
-    #    return (left_split, left_split_labels, left_split_weights), (right_split, right_split_labels, right_split_weights)
 
     def split_points(self, indices, X_matrices, X_matrices_rc):
 
@@ -613,16 +360,12 @@ class Node:
 
 
 
-
     #def decision_function(self, X, X_rc):
 
     #    classified = classify_sequences(X, X_rc, self.beta)
     #    g = lambda x: self.left_child_output if x==1 else self.right_child_output
     #    return np.array([g(x) for x in classified])
 
-
-        
-        
 
 
 class ConvDecisionTree:
@@ -955,17 +698,194 @@ class ConvDecisionTree:
 
             terminal_node = current_node.terminal
 
-        return current_node.decision_function(x)
+        return current_node.decision_function_one(x)
 
     def decision_function(self, X):
         return np.array([self.decision_function_one(x) for x in X])
 
 
 
+from sklearn.base import BaseEstimator, ClassifierMixin
+class ConvDT(BaseEstimator):
+    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy):
+        self.depth = depth
+        self.motif_length = motif_length
+        self.sequence_length = sequence_length
+        self.iterations = iterations
+        self.alpha = alpha
+        self.num_processes = num_processes
+        self.loss_function = loss_function
+        self.data = []
+                
+
+    def _find_optimal_beta(self, X_matrices, X_matrices_rc, y, grid, cov_init=0.4, sizes=(3000,1500), elite_num=20):
+        func = partial(_get_member_scores, X_matrices, X_matrices_rc, y, self.classes_)
+
+        cov = cov_init
+        best_memory = None
+        best_score = 1000000
+
+        print(self.iterations)
+        print(type(self.iterations))
+
+        for i in range(self.iterations):
+            print('iteration:', i)
+            print('drawing samples')
+            if i==0:
+                members = grid[np.random.choice(range(len(grid)), size=sizes[0], replace=False)]
+            else:
+                members = multivariate_normal.rvs(mean=mu, cov=cov, size=sizes[1])
+
+            print('calculating scores...')
+            with Pool(self.num_processes) as p:
+                member_scores = np.array(p.map(func, members))
+
+            print('getting bets scores')
+            best_scoring_indices = np.argsort(member_scores)[0:elite_num]
+            if member_scores[best_scoring_indices[0]] < best_score:
+                best_score = member_scores[best_scoring_indices[0]]
+                best_memory = members[best_scoring_indices[0]]
+            else:
+                pass
+
+            print('best score so far:', best_score)
+            print(member_scores[best_scoring_indices])
+
+            ## Calculate the MLE ##
+            new_mu = np.mean(members[best_scoring_indices], axis=0)
+            new_cov = np.mean([np.outer(x,x) for x in (members[best_scoring_indices] - new_mu)], axis=0) ## maybe faster way
+
+            print('updating values')
+            if i==0:
+                mu = new_mu
+                cov = self.alpha*new_cov + (1-self.alpha)*cov
+            else:
+                mu = self.alpha*new_mu + (1-self.alpha)*mu
+                cov = self.alpha*new_cov + (1-self.alpha)*cov
+
+            #entropy = self.loss_func(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, mu)))
+       
+
+
+        if self.loss_function(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_)) > best_score:
+            print('going with something else')
+            return best_memory
+        else:
+            print('nah we good')
+            return mu
+
+
+    def _split_points(self, indices, X_matrices, X_matrices_rc, beta):
+        classification = classify_sequences(X_matrices, X_matrices_rc, beta)
+
+        left_split = indices[np.where(classification==1)[0]]
+        right_split = indices[np.where(classification==0)[0]]
+
+        return (left_split, right_split)
+
+    
+
+    def fit(self, X, y, sample_weight=None):
+        self.data = []
+        #self.classes_ = [1,0]
+        self.classes_ = np.unique(y)
+        self.betas = []
+        self.proportions = []
+
+        X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
+
+        print('how long does this take')
+        X_rc = np.array([x[::-1] for x in X])
+        X_matrices_rc = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X_rc)])
+        print('not that long?')
+
+
+        #X_rc = np.empty((X.shape))
+        #X_matrices_rc = 
+
+        print('creating grid')
+        nucleotides = ['A', 'C', 'G', 'T']
+        keywords = itertools.product(nucleotides, repeat=self.motif_length)
+        kmer_list = ["".join(x) for x in keywords]
+        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / 6 ### NEED A BETTER WAY TO DO THIS!!!
+
+        for layer in range(self.depth):
+            if layer == 0:
+                self.betas.append([self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)])
+                self.data.append([self._split_points(np.arange(len(X_matrices)), X_matrices, X_matrices_rc, self.betas[layer][0])])
+
+            else:
+                for i in range(len(self.betas[layer-1])):
+                    left = self.data[layer-1][i][0]
+                    right = self.data[layer-1][i][1]
+
+                    left_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)
+                    right_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)
+
+                    left_children = self._split_points(left, X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta)
+                    right_children = self._split_points(right, X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta)
+
+
+                    if i==0: #have to append instead of extend on first iteration
+                        self.betas.append([left_beta, right_beta])
+                        self.data.append([left_children, right_children])
+                    else:
+                        self.betas[layer].extend([left_beta, right_beta])
+                        self.data[layer].extend([left_children, right_children])
+
+
+        for i in range(len(self.betas[-1])):
+            left = self.data[-1][i][0]
+            right = self.data[-1][i][1]
+            #classification = classify_sequences(X_matrices.take(left, axis=0), X_matrices.take(left, axis=0), self.betas[-1][i])
+            #counts = return_counts(y.take(left), classification)
+            #left_positive_proportion = counts[0]/np.sum(counts[0:1])
+            #right_positive_proportion = counts[3]/np.sum(counts[2:3])
+            left_proportion = y.take(left).sum()/len(left)
+            right_proportion = y.take(right).sum()/len(right)
+            self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
+        
+        return self
+        
+
+    def predict_proba_one(self, x):
+        current_layer = 0
+        position = 0
+
+        for current_layer in range(self.depth):
+            out = classify_sequence(x, self.betas[current_layer][position], self.motif_length, self.sequence_length)
+            if out==self.classes_[0]: ## if motif found, go to left node
+                position = position*2
+            else:
+                position = position*2+1
+
+        return self.proportions[position]
+
+    def predict_proba(self, X):
+        return np.array([self.predict_proba_one(x) for x in X])
+
+    def predict(self, X):
+        output = []
+        thresh = 0.5
+        for o in self.predict_proba(X):
+            if o[0] > thresh:
+                output.append(self.classes_[0])
+            else:
+                output.append(self.classes_[1])
+
+        return output
 
 
 
-################################################################################################################3
+    def score(self, X, y):
+        return np.sum(self.predict(X) == y) / len(y)
+
+
+
+
+
+
+################################################################################################################
 
 
 def print_with_features(L, Features, ordered=False):
@@ -1008,151 +928,6 @@ def plot_roc(true_y, proba_y):
 
 
 
-
-class AdaboostedDecisionTree():
-
-    def __init__(self, initial_betas, initial_beta_probabilities, num_trees=25, max_depth=2, motif_length=6, sequence_length=199):
-        self.weights_list = []
-        self.importances_list = []
-        self.gammas_list = []
-        self.trees_list = []
-        self.num_trees = num_trees
-        self.weights = []
-        self.all_importances = []
-        self.depth=max_depth
-        self.motif_length=motif_length
-        self.seq_length=sequence_length
-        self.initial_betas = initial_betas
-        self.initial_beta_probabilities = initial_beta_probabilities
-
-
-
-    def gradientfit(self, X, y, iterations=1000, step_size=1/200):
-
-        self.weights = np.ones(len(X))/len(X)
-
-        for i in range(self.num_trees):
-            print("TREE NUMBER", i)
-            self.weights_list.append(self.weights)
-
-            t = ObliqueConvDecisionTree(depth=self.depth, motif_length=self.motif_length, seq_length=self.seq_length,
-                    initial_betas=self.initial_betas, initial_beta_probabilities=self.initial_beta_probabilities)
-            t.gradientfit(X, y, self.weights, iterations, step_size)
-
-            wrong_list = [int(x) for x in t.predict(np.array(X)) != y]
-            err = np.sum(self.weights * wrong_list)/np.sum(self.weights)
-            gamma = np.log((1-err)/err)
-            self.gammas_list.append(gamma)
-
-            self.weights *= np.exp([gamma*x for x in wrong_list]) / np.sum(np.exp([gamma*x for x in wrong_list]))
-            self.weights = normalize(self.weights)
-
-            self.trees_list.append(t)
-
-    def annealfit(self, X, y, alpha=0.9, T_start=.0005, T_min=.0001, iterations=250):
-
-        self.weights = np.ones(len(X))/len(X)
-
-        for i in range(self.num_trees):
-            print("TREE NUMBER", i)
-            self.weights_list.append(self.weights)
-
-            t = ObliqueConvDecisionTree(depth=self.depth, motif_length=self.motif_length, seq_length=self.seq_length,
-                    initial_betas=self.initial_betas, initial_beta_probabilities=self.initial_beta_probabilities)
-            t.annealfit(X, y, self.weights, alpha, T_start, T_min, iterations)
-
-            wrong_list = [int(x) for x in t.predict(np.array(X)) != y]
-            err = np.sum(self.weights * wrong_list)/np.sum(self.weights)
-            gamma = np.log((1-err)/err)
-            self.gammas_list.append(gamma)
-
-            self.weights *= np.exp([gamma*x for x in wrong_list]) / np.sum(np.exp([gamma*x for x in wrong_list]))
-            self.weights = normalize(self.weights)
-
-            self.trees_list.append(t)
-
-    def crossentroypfit(self, X, y, iterations=10):
-
-        self.weights = np.ones(len(X))/len(X)
-
-        for i in range(self.num_trees):
-            print("TREE NUMBER", i)
-            self.weights_list.append(self.weights)
-
-            t = ObliqueConvDecisionTree(depth=self.depth, motif_length=self.motif_length, seq_length=self.seq_length,
-                    initial_betas=self.initial_betas, initial_beta_probabilities=self.initial_beta_probabilities)
-            t.crossentropyfit(X, y, self.weights, iterations)
-
-            wrong_list = [int(x) for x in t.predict(np.array(X)) != y]
-            err = np.sum(self.weights * wrong_list)/np.sum(self.weights)
-            gamma = np.log((1-err)/err)
-            self.gammas_list.append(gamma)
-
-            self.weights *= np.exp([gamma*x for x in wrong_list]) / np.sum(np.exp([gamma*x for x in wrong_list]))
-            self.weights = normalize(self.weights)
-
-            self.trees_list.append(t)
-
-
-
-    def predict(self, X):
-
-        tree_predictions = np.array([tree.predict(X) for tree in self.trees_list])
-
-        return threshold(np.dot(self.gammas_list, tree_predictions)/np.sum(self.gammas_list))
-
-
-
-class BaggedConvDT():
-
-    def __init__(self, initial_betas, initial_beta_probabilities, num_trees=25, max_depth=2, motif_length=6, sequence_length=199):
-        self.trees_list = []
-        self.num_trees = num_trees
-        self.motif_length = motif_length
-        self.sequence_length = sequence_length
-        self.depth = max_depth
-        self.initial_betas = initial_betas
-        self.initial_beta_probabilities = initial_beta_probabilities
-
-
-    def annealfit(self, X, y, alpha=0.9, T_start=.002, T_min=.0001, iterations=250, percent_bag=0.66):
-
-        self.weights = np.ones(len(X))/len(X)
-
-        for i in range(self.num_trees):
-            print("TREE NUMBER", i)
-
-            train_size = int(len(X)*percent_bag)
-            rows = np.random.choice(range(X.shape[0]), size=train_size, replace=True)
-            X_temp = X[rows]
-            y_temp = y[rows]
-
-            t = ObliqueConvDecisionTree(depth=self.depth, motif_length=self.motif_length, seq_length=self.sequence_length,
-                    initial_betas=self.initial_betas, initial_beta_probabilities=self.initial_beta_probabilities)
-            t.annealfit(X_temp, y_temp, self.weights, alpha, T_start, T_min, iterations)
-
-            self.trees_list.append(t)
-            
-    def crossentropyfit(self, X, y, iterations=10, percent_bag=0.66):
-
-        self.weights = np.ones(len(X))/len(X)
-
-        for i in range(self.num_trees):
-            print("TREE NUMBER", i)
-
-            train_size = int(len(X)*percent_bag)
-            rows = np.random.choice(range(X.shape[0]), size=train_size, replace=True)
-            X_temp = X[rows]
-            y_temp = y[rows]
-
-            t = ObliqueConvDecisionTree(depth=self.depth, motif_length=self.motif_length, seq_length=self.sequence_length)
-            t.crossentropyfit(X_temp, y_temp, self.weights, iterations)
-
-            self.trees_list.append(t)
-            
-    def predict(self, X):
-        tree_predictions = np.mean(np.array([tree.predict(X) for tree in self.trees_list]), axis=0)
-        return threshold(tree_predictions)
 
 
 
