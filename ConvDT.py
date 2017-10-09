@@ -7,6 +7,8 @@ from numpy.lib.stride_tricks import as_strided
 from scipy.stats import multivariate_normal
 from multiprocessing import Pool
 from functools import partial
+import matplotlib.pyplot as plt
+from sklearn.metrics import classification_report, roc_auc_score, roc_curve, auc
 
 #import nltk
 
@@ -40,11 +42,16 @@ def faster_dot(X_matrices, beta):
 def classify_sequences(X_matrices, X_matrices_rc, beta):
     #return np.logical_or(np.any(np.dot(X_matrices, beta) > 1, axis=1), np.any(np.dot(X_matrices_rc, beta) > 1, axis=1)).astype(int)
     #return np.logical_or(np.any(np.array([np.dot(x, beta) for x in X_matrices]) > 1, axis=1), np.any(np.array([np.dot(x, beta) for x in X_matrices_rc]) > 1, axis=1)).astype(int)
-    return np.logical_or(np.any(faster_dot(X_matrices, beta) > 1, axis=1), np.any(faster_dot(X_matrices_rc, beta) > 1, axis=1)).astype(int)
+    return np.logical_or(np.any(faster_dot(X_matrices, beta) > 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) > 1.0, axis=1)).astype(int)
+
+def weighted_classify_sequences(X_matrices, X_matrices_rc, beta, weights):
+    #return np.logical_or(np.any(np.dot(X_matrices, beta) > 1, axis=1), np.any(np.dot(X_matrices_rc, beta) > 1, axis=1)).astype(int)
+    #return np.logical_or(np.any(np.array([np.dot(x, beta) for x in X_matrices]) > 1, axis=1), np.any(np.array([np.dot(x, beta) for x in X_matrices_rc]) > 1, axis=1)).astype(int)
+    return np.logical_or(np.any(faster_dot(X_matrices, beta) > 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) > 1.0, axis=1)).astype(int)
     
 def classify_sequence(x, beta, motif_length, sequence_length):
     x_matrix = x_to_matrix(x, motif_length, sequence_length)
-    return int(np.any(np.dot(x_matrix, beta) > 1) or np.any(np.dot(x_matrix, flip_beta(beta)) > 1))
+    return int(np.any(np.dot(x_matrix, beta) > 1.0) or np.any(np.dot(x_matrix, flip_beta(beta)) > 1.0))
 
     
 
@@ -71,7 +78,7 @@ def return_counts(labels, classifications):
 
     return [true1, false1, true0, false0]
 
-def return_counts_general(labels, classifications, classes):
+def return_counts_general(labels, classifications, classes): ## use the collection.Counter() method to make this faster!!
     zipped = list(zip(labels, classifications))
     true_first_class = zipped.count((classes[0], classes[0]))
     false_first_class = zipped.count((classes[1], classes[0]))
@@ -79,6 +86,16 @@ def return_counts_general(labels, classifications, classes):
     false_second_class = zipped.count((classes[0], classes[1]))
 
     return [true_first_class, false_first_class, true_second_class, false_second_class]
+
+def find(lst, elements):
+    return [[i for i,x in enumerate(lst) if x==e] for e in elements]
+
+def return_counts_weighted(labels, classifications, classes, weights):
+    zipped = list(zip(labels, classifications))
+
+    true_first_class, false_first_class, true_second_class, false_second_class = find(zipped, [(classes[0],classes[0]), (classes[1],classes[0]), (classes[1],classes[1]), (classes[0],classes[1])])
+
+    return [np.sum(weights[true_first_class]), np.sum(weights[false_first_class]), np.sum(weights[true_second_class]), np.sum(weights[false_second_class])]
 
 def return_weightedcounts(labels, classifications, weights):
     zipped = list(zip(list(zip(labels, classifications)), weights))
@@ -134,9 +151,10 @@ def normalize_dict(d):
     return d_copy
 
 
-def _get_member_scores(X_matrices, X_matrices_rc, y, classes, m):
+def _get_member_scores(X_matrices, X_matrices_rc, y, classes, weights, m):
             #return two_class_weighted_entropy(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, m)))
-            return two_class_weighted_entropy(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, m), classes))
+            #return two_class_weighted_entropy(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, m), classes))
+            return two_class_weighted_entropy(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, m), classes, weights))
 
 #########################
 ### CLASS DEFINITIONS ###
@@ -718,15 +736,12 @@ class ConvDT(BaseEstimator):
         self.data = []
                 
 
-    def _find_optimal_beta(self, X_matrices, X_matrices_rc, y, grid, cov_init=0.4, sizes=(3000,1500), elite_num=20):
-        func = partial(_get_member_scores, X_matrices, X_matrices_rc, y, self.classes_)
+    def _find_optimal_beta(self, X_matrices, X_matrices_rc, y, weights, grid, cov_init=0.4, sizes=(3000,1500), elite_num=20):
+        func = partial(_get_member_scores, X_matrices, X_matrices_rc, y, self.classes_, weights)
 
         cov = cov_init
         best_memory = None
         best_score = 1000000
-
-        print(self.iterations)
-        print(type(self.iterations))
 
         for i in range(self.iterations):
             print('iteration:', i)
@@ -764,10 +779,13 @@ class ConvDT(BaseEstimator):
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
 
             #entropy = self.loss_func(return_counts(y, classify_sequences(X_matrices, X_matrices_rc, mu)))
+
+        #final_counts = 
        
 
 
-        if self.loss_function(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_)) > best_score:
+        #if self.loss_function(return_counts_general(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_)) > best_score:
+        if self.loss_function(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_, weights)) > best_score:
             print('going with something else')
             return best_memory
         else:
@@ -786,44 +804,48 @@ class ConvDT(BaseEstimator):
     
 
     def fit(self, X, y, sample_weight=None):
+
+        if sample_weight is None:
+            sample_weight = np.ones(len(X))
+
         self.data = []
-        #self.classes_ = [1,0]
         self.classes_ = np.unique(y)
         self.betas = []
         self.proportions = []
 
+        #create X_matrices and its reverse complement
         X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
-
-        print('how long does this take')
         X_rc = np.array([x[::-1] for x in X])
         X_matrices_rc = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X_rc)])
-        print('not that long?')
 
-
-        #X_rc = np.empty((X.shape))
-        #X_matrices_rc = 
 
         print('creating grid')
         nucleotides = ['A', 'C', 'G', 'T']
         keywords = itertools.product(nucleotides, repeat=self.motif_length)
         kmer_list = ["".join(x) for x in keywords]
-        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / 6 ### NEED A BETTER WAY TO DO THIS!!!
+        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / 6.5 ### NEED A BETTER WAY TO DO THIS!!!
 
         for layer in range(self.depth):
             if layer == 0:
-                self.betas.append([self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)])
+                self.betas.append([self._find_optimal_beta(X_matrices, X_matrices_rc, y, sample_weight, full_grid)])
                 self.data.append([self._split_points(np.arange(len(X_matrices)), X_matrices, X_matrices_rc, self.betas[layer][0])])
+
+                print('counts...', return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, self.betas[0][0]), self.classes_, sample_weight))
 
             else:
                 for i in range(len(self.betas[layer-1])):
                     left = self.data[layer-1][i][0]
                     right = self.data[layer-1][i][1]
 
-                    left_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)
-                    right_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, full_grid)
+                    left_beta = self._find_optimal_beta(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), y.take(left), sample_weight.take(left), full_grid)
+                    print ('counts...', return_counts_weighted(y.take(left), classify_sequences(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta), self.classes_, sample_weight.take(left)))
+                    
+                    right_beta = self._find_optimal_beta(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), y.take(right), sample_weight.take(right), full_grid)
+                    print ('counts...', return_counts_weighted(y.take(right), classify_sequences(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta), self.classes_, sample_weight.take(right)))
 
                     left_children = self._split_points(left, X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta)
                     right_children = self._split_points(right, X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta)
+
 
 
                     if i==0: #have to append instead of extend on first iteration
@@ -837,12 +859,8 @@ class ConvDT(BaseEstimator):
         for i in range(len(self.betas[-1])):
             left = self.data[-1][i][0]
             right = self.data[-1][i][1]
-            #classification = classify_sequences(X_matrices.take(left, axis=0), X_matrices.take(left, axis=0), self.betas[-1][i])
-            #counts = return_counts(y.take(left), classification)
-            #left_positive_proportion = counts[0]/np.sum(counts[0:1])
-            #right_positive_proportion = counts[3]/np.sum(counts[2:3])
-            left_proportion = y.take(left).sum()/len(left)
-            right_proportion = y.take(right).sum()/len(right)
+            left_proportion = (y.take(left) == self.classes_[0]).sum()/len(left)
+            right_proportion = (y.take(right) == self.classes_[0]).sum()/len(right)
             self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
         
         return self
@@ -854,7 +872,7 @@ class ConvDT(BaseEstimator):
 
         for current_layer in range(self.depth):
             out = classify_sequence(x, self.betas[current_layer][position], self.motif_length, self.sequence_length)
-            if out==self.classes_[0]: ## if motif found, go to left node
+            if out==1:#self.classes_[0]: ## if motif found, go to left node
                 position = position*2
             else:
                 position = position*2+1
@@ -867,7 +885,8 @@ class ConvDT(BaseEstimator):
     def predict(self, X):
         output = []
         thresh = 0.5
-        for o in self.predict_proba(X):
+        predicted_probs = self.predict_proba(X)
+        for o in predicted_probs:
             if o[0] > thresh:
                 output.append(self.classes_[0])
             else:
