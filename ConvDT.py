@@ -16,7 +16,7 @@ from sklearn.metrics import classification_report, roc_auc_score, roc_curve, auc
 ### FUNCTION DEFINITIONS ####
 
 # Loss Function
-def entropy(p_vec, pseudo=0.00001):
+def entropy(p_vec, pseudo=0.00000001):
     if np.sum(p_vec) > 0:
         return np.sum([-(p)*np.log((p)) for p in [(x/np.sum(p_vec))+pseudo for x in p_vec]])
     else:
@@ -276,12 +276,10 @@ class ConvDT(BaseEstimator):
                     right = self.data[layer-1][i][1]
 
                     left_beta = self._find_optimal_beta(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), y.take(left), sample_weight.take(left), full_grid)
-                    #left_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, sample_weight, full_grid)
                     print ('counts...', return_counts_weighted(y.take(left), 
                         classify_sequences(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta), self.classes_, sample_weight.take(left)))
                     
                     right_beta = self._find_optimal_beta(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), y.take(right), sample_weight.take(right), full_grid)
-                    #right_beta = self._find_optimal_beta(X_matrices, X_matrices_rc, y, sample_weight, full_grid)
                     print ('counts...', return_counts_weighted(y.take(right), 
                         classify_sequences(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta), self.classes_, sample_weight.take(right)))
 
