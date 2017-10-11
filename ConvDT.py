@@ -299,8 +299,11 @@ class ConvDT(BaseEstimator):
         for i in range(len(self.betas[-1])):
             left = self.data[-1][i][0]
             right = self.data[-1][i][1]
-            left_proportion = (y.take(left) == self.classes_[0]).sum()/len(left)
-            right_proportion = (y.take(right) == self.classes_[0]).sum()/len(right)
+            #left_proportion = (y.take(left) == self.classes_[0]).sum()/len(left)
+            #right_proportion = (y.take(right) == self.classes_[0]).sum()/len(right)
+
+            left_proportion = sample_weight.take(left)[y.take(left) == self.classes_[0]].sum()/sample_weight.take(left).sum()
+            right_proportion = sample_weight.take(right)[y.take(right) == self.classes_[0]].sum()/sample_weight.take(right).sum()
             self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
         
         return self
