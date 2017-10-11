@@ -100,13 +100,28 @@ def return_weightedcounts(labels, classifications, weights):
 
 
 ## Functions for determining initial grid of cross entroyp ##
+#def calculate_prob(N, l, x):
+#    return 1 - (1 - (scipy.misc.comb(l,x) * 3**(l-x) * (1/4)**l))**(2*(N-l+1))
+#
+#def find_best_div(N, l, proportion):
+#    best = 1
+#    closest = 1
+#    for d in np.arange(0,l,.1):
+#        diff = np.abs((calculate_prob(N, l, d) - proportion))
+#        if diff < closest:
+#            closest = diff
+#            best = d
+#        else:
+#            pass
+#    return best
+
 def calculate_prob(N, l, x):
-    return 1 - (1 - (scipy.misc.comb(l,x) * 3**(l-x) * (1/4)**l))**(2*(N-l+1))
+    return 1 - (scipy.special.bdtr(x-1, l, (1/4))**(2*(N-l+1)))
 
 def find_best_div(N, l, proportion):
-    best = 1
+    best = -1
     closest = 1
-    for d in np.arange(0,l,.1):
+    for d in np.arange(1,l+1):
         diff = np.abs((calculate_prob(N, l, d) - proportion))
         if diff < closest:
             closest = diff
@@ -259,9 +274,9 @@ class ConvDT(BaseEstimator):
         nucleotides = ['A', 'C', 'G', 'T']
         keywords = itertools.product(nucleotides, repeat=self.motif_length)
         kmer_list = ["".join(x) for x in keywords]
-        #div = find_best_div(self.sequence_length, self.motif_length, 0.5)
+        div = find_best_div(self.sequence_length, self.motif_length, 0.5)
         #print(div)
-        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / 6.5
+        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
 
         for layer in range(self.depth):
             if layer == 0:
