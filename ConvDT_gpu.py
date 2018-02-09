@@ -160,6 +160,27 @@ def normalize_dict(d):
 def _get_member_scores(X_matrices, X_matrices_rc, y, classes, weights, m):
             return two_class_weighted_entropy(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, m), classes, weights))
 
+
+def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
+    result = np.array()
+    for i in range(int(len(B)/limit)):
+        conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
+        conv.cuda()
+
+        output1 = (conv(X) >= 1.0).sum(dim=2)
+        output2 = (conv(X_rc) >= 1.0).sum(dim=2)
+
+        np.append(result, np.swapaxes(output1+output2).cpu().data.numpy().astype(bool),0,1)
+
+    return result
+
+    
+
+
+
+
+    
+
 #########################
 ### CLASS DEFINITIONS ###
 #########################
@@ -203,20 +224,23 @@ class ConvDT(BaseEstimator):
             ### PYTORCH PART ###
             ####################
 
-            # load the betas into the pytorch Conv1d filter
-            self.conv.weight.data = torch.from_numpy(members.reshape(self.optimization_sample_size[0],1,self.motif_length*4)).float()
-            self.conv.cuda()
+            #### TESTING ####
+            classifications = pytorch_conv(X, X_rc, members, self.conv)
 
-            # use indices to only use some part of the dataset
-            indices_cuda = Variable(torch.LongTensor(indices)).cuda()
+            ## load the betas into the pytorch Conv1d filter
+            #self.conv.weight.data = torch.from_numpy(members.reshape(self.optimization_sample_size[0],1,self.motif_length*4)).float()
+            #self.conv.cuda()
 
-            # run Conv1d filters over the sequences
-            output_forward = (self.conv(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-            output_rc = (self.conv(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
+            ## use indices to only use some part of the dataset
+            #indices_cuda = Variable(torch.LongTensor(indices)).cuda()
 
-            # tricky way of classifying whether we see a motif or not in the forward or reverse complement of sequences
-            total_output = (output_forward + output_rc).cpu().data.numpy()
-            classifications = np.swapaxes(total_output.astype(bool),0,1)
+            ## run Conv1d filters over the sequences
+            #output_forward = (self.conv(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
+            #output_rc = (self.conv(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
+
+            ## tricky way of classifying whether we see a motif or not in the forward or reverse complement of sequences
+            #total_output = (output_forward + output_rc).cpu().data.numpy()
+            #classifications = np.swapaxes(total_output.astype(bool),0,1)
             #print(classifications.shape)
 
             # get the entropy scores for each member (beta)
