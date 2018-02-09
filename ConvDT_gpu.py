@@ -168,7 +168,7 @@ def _get_member_scores(X_matrices, X_matrices_rc, y, classes, weights, m):
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 class ConvDT(BaseEstimator):
-    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(3000,3000)):
+    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000)):
         self.depth = depth
         self.motif_length = motif_length
         self.sequence_length = sequence_length
@@ -212,11 +212,12 @@ class ConvDT(BaseEstimator):
 
             # run Conv1d filters over the sequences
             output_forward = (self.conv(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-            output_rc = (self.conv(X_rc.index_select(dim=0, index=indicies_cuda)) >= 1.0).sum(dim=2)
+            output_rc = (self.conv(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
 
             # tricky way of classifying whether we see a motif or not in the forward or reverse complement of sequences
             total_output = (output_forward + output_rc).cpu().data.numpy()
             classifications = np.swapaxes(total_output.astype(bool),0,1)
+            #print(classifications.shape)
 
             # get the entropy scores for each member (beta)
             member_scores = np.apply_along_axis(two_class_weighted_entropy,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
@@ -243,24 +244,35 @@ class ConvDT(BaseEstimator):
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
 
 
-        if self.loss_function(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_, weights)) > best_score:
-            print('going with something else')
-            beta = best_memory
-        else:
-            print('nah we good')
-            beta = mu
+        #if self.loss_function(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_, weights)) > best_score:
+        #    print('going with something else')
+        #    beta = best_memory
+        #else:
+        #    print('nah we good')
+        #    beta = mu
     
         #############
         ## PYTORCH ##
         #############
         
-        self.conv_single.weight.data = torch.from_numpy(beta).float()
+        self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         self.conv_single.cuda()
         output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
+        
+        #print(classifications)
+        #print(classifications.shape)
 
-        return beta, (indices[np.where(classifications==1)[0]], indices[np.where(classifications==0)[0]])
+        if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
+            print("going with something else")
+            beta = best_memory
+        else:
+            print("we good")
+            beta = mu
+
+
+        return beta, (indices[np.where(classifications[0]==1)[0]], indices[np.where(classifications[0]==0)[0]])
 
 
 
@@ -287,7 +299,8 @@ class ConvDT(BaseEstimator):
 
         #create X_matrices and its reverse complement
         #X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
-        X_rc = np.array([x[::-1] for x in X])
+        X_gpu = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float().cuda())
+        Xrc_gpu = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float().cuda())
         #X_matrices_rc = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X_rc)])
 
 
@@ -301,7 +314,9 @@ class ConvDT(BaseEstimator):
 
         for layer in range(self.depth):
             if layer == 0:
-                b, splits = self._find_optimal_beta(X, X_rc, np.arange(len(X)), y, sample_weight, full_grid)
+                b, splits = self._find_optimal_beta(X_gpu, Xrc_gpu, np.arange(len(X)), y, sample_weight, full_grid)
+                #print("b", b)
+                print("splits", splits)
                 self.betas.append([b])
                 self.data.append([splits])
                 #self.betas.append([self._find_optimal_beta(X, X_rc, np.arange(len(X)), y, sample_weight, full_grid)])
@@ -313,14 +328,19 @@ class ConvDT(BaseEstimator):
                 for i in range(len(self.betas[layer-1])):
                     left = self.data[layer-1][i][0]
                     right = self.data[layer-1][i][1]
+                    #print('left indices', left)
+                    #print('right indices', right)
 
                     #left_beta = self._find_optimal_beta(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), y.take(left), sample_weight.take(left), full_grid)
-                    left_beta, left_children = self._find_optimal_beta(X, X_rc, left, y, sample_weight, full_grid)
+                    left_beta, left_children = self._find_optimal_beta(X_gpu, Xrc_gpu, left, y, sample_weight, full_grid)
+                    #print(left_beta)
+                    print(left_children)
                     #print ('counts...', return_counts_weighted(y.take(left), 
                     #    classify_sequences(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta), self.classes_, sample_weight.take(left)))
                     
                     #right_beta = self._find_optimal_beta(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), y.take(right), sample_weight.take(right), full_grid)
-                    right_beta, right_children = self._find_optimal_beta(X, X_rc, right, y, sample_weight, full_grid)
+                    right_beta, right_children = self._find_optimal_beta(X_gpu, Xrc_gpu, right, y, sample_weight, full_grid)
+                    print( right_children)
                     #print ('counts...', return_counts_weighted(y.take(right), 
                     #    classify_sequences(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta), self.classes_, sample_weight.take(right)))
 
