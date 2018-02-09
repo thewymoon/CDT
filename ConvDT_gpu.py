@@ -162,15 +162,29 @@ def _get_member_scores(X_matrices, X_matrices_rc, y, classes, weights, m):
 
 
 def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
-    result = np.array()
-    for i in range(int(len(B)/limit)):
-        conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
-        conv.cuda()
+    X_size = X.size(0)
+    if single:
+        result = np.empty((0,X_size), dtype=np.float64)
+        for i in range(int(len(B)/limit)):
+            conv.weight.data = torch.from_numpy(B.reshape(1,1,len(B))).float()
+            conv.cuda()
 
-        output1 = (conv(X) >= 1.0).sum(dim=2)
-        output2 = (conv(X_rc) >= 1.0).sum(dim=2)
+            output1 = (conv(X) >= 1.0).sum(dim=2)
+            output2 = (conv(X_rc) >= 1.0).sum(dim=2)
 
-        np.append(result, np.swapaxes(output1+output2).cpu().data.numpy().astype(bool),0,1)
+            result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
+
+
+    else:
+        result = np.empty((0,X_size), dtype=np.float64)
+        for i in range(int(len(B)/limit)):
+            conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
+            conv.cuda()
+
+            output1 = (conv(X) >= 1.0).sum(dim=2)
+            output2 = (conv(X_rc) >= 1.0).sum(dim=2)
+
+            result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
 
     return result
 
@@ -199,7 +213,8 @@ class ConvDT(BaseEstimator):
         self.loss_function = loss_function
         self.data = []
         self.optimization_sample_size = optimization_sample_size
-        self.conv = nn.Conv1d(1,optimization_sample_size[0],kernel_size=motif_length*4,stride=4)
+        #self.conv = nn.Conv1d(1,optimization_sample_size[0],kernel_size=motif_length*4,stride=4)
+        self.conv = nn.Conv1d(1,2000,kernel_size=motif_length*4,stride=4)
         self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4)
                 
 
@@ -209,6 +224,8 @@ class ConvDT(BaseEstimator):
         cov = cov_init
         best_memory = None
         best_score = 1000000
+
+
 
         ### sample members (betas) ###
         for i in range(self.iterations):
@@ -225,7 +242,9 @@ class ConvDT(BaseEstimator):
             ####################
 
             #### TESTING ####
-            classifications = pytorch_conv(X, X_rc, members, self.conv)
+            indices_cuda = Variable(torch.LongTensor(indices)).cuda()
+            classifications = pytorch_conv(X.index_select(dim=0, index=indices_cuda), 
+                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv)
 
             ## load the betas into the pytorch Conv1d filter
             #self.conv.weight.data = torch.from_numpy(members.reshape(self.optimization_sample_size[0],1,self.motif_length*4)).float()
@@ -278,6 +297,13 @@ class ConvDT(BaseEstimator):
         #############
         ## PYTORCH ##
         #############
+
+        #classifications = pytorch_conv(X.index_select(dim=0, index=indices_cuda), 
+        #                               X_rc.index_select(dim=0, index=indices_cuda), mu, self.conv_single, single=True)
+
+        #print(classifications)
+        #print(classifications.shape)
+
         
         self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         self.conv_single.cuda()
