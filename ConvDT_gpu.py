@@ -224,6 +224,7 @@ class ConvDT(BaseEstimator):
         cov = cov_init
         best_memory = None
         best_score = 1000000
+        best_classifications = None
 
 
 
@@ -270,8 +271,11 @@ class ConvDT(BaseEstimator):
             if member_scores[best_scoring_indices[0]] < best_score:
                 best_score = member_scores[best_scoring_indices[0]]
                 best_memory = members[best_scoring_indices[0]]
+                best_classifications = classifications[best_scoring_indices[0]]
             else:
                 pass
+
+
 
             print('best score so far:', best_score)
 
@@ -310,6 +314,7 @@ class ConvDT(BaseEstimator):
         output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
+        print(classifications, classifications.shape)
         
         #print(classifications)
         #print(classifications.shape)
@@ -317,12 +322,15 @@ class ConvDT(BaseEstimator):
         if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
             print("going with something else")
             beta = best_memory
+            output_classifications = best_classifications
         else:
             print("we good")
             beta = mu
+            output_classifications = classifications[0]
 
 
-        return beta, (indices[np.where(classifications[0]==1)[0]], indices[np.where(classifications[0]==0)[0]])
+        #print(indices[np.where(output_classifications[0]==1)[0]], indices[np.where(output_classifications[0]==0)[0]])
+        return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
 
 
 
@@ -366,7 +374,7 @@ class ConvDT(BaseEstimator):
             if layer == 0:
                 b, splits = self._find_optimal_beta(X_gpu, Xrc_gpu, np.arange(len(X)), y, sample_weight, full_grid)
                 #print("b", b)
-                print("splits", splits)
+                print("splits", len(splits[0]), len(splits[-1]))
                 self.betas.append([b])
                 self.data.append([splits])
                 #self.betas.append([self._find_optimal_beta(X, X_rc, np.arange(len(X)), y, sample_weight, full_grid)])
@@ -384,13 +392,12 @@ class ConvDT(BaseEstimator):
                     #left_beta = self._find_optimal_beta(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), y.take(left), sample_weight.take(left), full_grid)
                     left_beta, left_children = self._find_optimal_beta(X_gpu, Xrc_gpu, left, y, sample_weight, full_grid)
                     #print(left_beta)
-                    print(left_children)
-                    #print ('counts...', return_counts_weighted(y.take(left), 
-                    #    classify_sequences(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta), self.classes_, sample_weight.take(left)))
+                    print("going left", len(left_children[0]), len(left_children[1]))
+                    #print ('counts...', return_counts_weighted(y.take(left), #    classify_sequences(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), left_beta), self.classes_, sample_weight.take(left)))
                     
                     #right_beta = self._find_optimal_beta(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), y.take(right), sample_weight.take(right), full_grid)
                     right_beta, right_children = self._find_optimal_beta(X_gpu, Xrc_gpu, right, y, sample_weight, full_grid)
-                    print( right_children)
+                    print("going right", len(right_children[0]), len(right_children[1]))
                     #print ('counts...', return_counts_weighted(y.take(right), 
                     #    classify_sequences(X_matrices.take(right, axis=0), X_matrices_rc.take(right, axis=0), right_beta), self.classes_, sample_weight.take(right)))
 
