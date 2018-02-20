@@ -167,7 +167,8 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
         result = np.empty((0,X_size), dtype=np.float64)
         for i in range(int(len(B)/limit)):
             conv.weight.data = torch.from_numpy(B.reshape(1,1,len(B))).float()
-            conv.cuda()
+            if torch.cuda.is_available():
+                conv.cuda()
 
             output1 = (conv(X) >= 1.0).sum(dim=2)
             output2 = (conv(X_rc) >= 1.0).sum(dim=2)
@@ -179,7 +180,8 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
         result = np.empty((0,X_size), dtype=np.float64)
         for i in range(int(len(B)/limit)):
             conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
-            conv.cuda()
+            if torch.cuda.is_available():
+                conv.cuda()
 
             output1 = (conv(X) >= 1.0).sum(dim=2)
             output2 = (conv(X_rc) >= 1.0).sum(dim=2)
@@ -243,7 +245,9 @@ class ConvDT(BaseEstimator):
             ####################
 
             #### TESTING ####
-            indices_cuda = Variable(torch.LongTensor(indices)).cuda()
+            indices_cuda = Variable(torch.LongTensor(indices))
+            if torch.cuda.is_available():
+                indices_cuda = indices_cuda.cuda()
             classifications = pytorch_conv(X.index_select(dim=0, index=indices_cuda), 
                                            X_rc.index_select(dim=0, index=indices_cuda), members, self.conv)
 
@@ -310,7 +314,8 @@ class ConvDT(BaseEstimator):
 
         
         self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
-        self.conv_single.cuda()
+        if torch.cuda.is_available():
+            self.conv_single = self.conv_single.cuda()
         output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
@@ -355,10 +360,15 @@ class ConvDT(BaseEstimator):
         self.betas = []
         self.proportions = []
 
+        print('weights', sample_weight)
+
         #create X_matrices and its reverse complement
         #X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
-        X_gpu = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float().cuda())
-        Xrc_gpu = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float().cuda())
+        X_gpu = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
+        Xrc_gpu = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
+        if torch.cuda.is_available():
+            X_gpu = X_gpu.cuda()
+            Xrc_gpu = Xrc_gpu.cuda()
         #X_matrices_rc = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X_rc)])
 
 
@@ -423,6 +433,10 @@ class ConvDT(BaseEstimator):
             left_proportion = sample_weight.take(left)[y.take(left) == self.classes_[0]].sum()/sample_weight.take(left).sum()
             right_proportion = sample_weight.take(right)[y.take(right) == self.classes_[0]].sum()/sample_weight.take(right).sum()
             self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
+
+
+        print(self.score(X,y))
+
         
         return self
         
