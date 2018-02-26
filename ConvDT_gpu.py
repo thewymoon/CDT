@@ -58,10 +58,15 @@ def classify_sequence(x, beta, motif_length):
     #flipped_beta = flip_beta(beta)
     flipped_beta = beta[::-1]
 
-    scan_length = int(len(x)/4 - len(beta) + 1)
+    scan_length = int((len(x) - len(beta))/4 + 1)
 
     out1 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], beta) for i in range(scan_length)])
     out2 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], flipped_beta) for i in range(scan_length)])
+
+    print(out1.shape)
+    print(out2.shape)
+    print(out1)
+    print(out2)
     #return int(np.any(out1 >= 1.0) or np.any(out2 >= 1.0))
     return int(np.any((out1>=1.0) + (out2>=1.0)))
 
@@ -200,12 +205,18 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
             print("testing", (conv(X) >= 1.0).cpu().data.numpy().shape)
 
 
-            output1 = (conv(X) >= 1.0).sum(dim=2)
-            output2 = (conv(X_rc) >= 1.0).sum(dim=2)
-            print('output1 shape', output1.cpu().data.numpy().shape, output1.cpu().data.numpy())
-            #print('size!!!', output1.cpu().size)
+            #output1 = (conv(X) >= 1.0).sum(dim=2)
+            #output2 = (conv(X_rc) >= 1.0).sum(dim=2)
+            #print('output1 shape', output1.cpu().data.numpy().shape, output1.cpu().data.numpy())
+            ##print('size!!!', output1.cpu().size)
 
-            result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
+            #result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
+
+            output1 = conv(X)
+            output2 = conv(X_rc)
+            max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+            result = np.append(result, max_output, axis=0)
+
 
     return result
 
@@ -228,8 +239,8 @@ class ConvDT(BaseEstimator):
         self.data = []
         self.optimization_sample_size = optimization_sample_size
         #self.conv = nn.Conv1d(1,optimization_sample_size[0],kernel_size=motif_length*4,stride=4)
-        self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4)
-        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4)
+        self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
+        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
                 
 
     #def _find_optimal_beta(self, X_matrices, X_matrices_rc, y, weights, grid, cov_init=0.4, elite_num=20):
@@ -334,9 +345,13 @@ class ConvDT(BaseEstimator):
         self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         if torch.cuda.is_available():
             self.conv_single = self.conv_single.cuda()
-        output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-        output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-        classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
+        #output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
+        #output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
+        output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
+        output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
+        classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+
+        #classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
         print(classifications, classifications.shape)
         
         #print(classifications)
