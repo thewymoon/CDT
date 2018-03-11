@@ -55,20 +55,15 @@ def weighted_classify_sequences(X_matrices, X_matrices_rc, beta, weights):
 #    return int(np.any(np.dot(x_matrix, beta) >= 1.0) or np.any(np.dot(x_matrix, flip_beta(beta)) >= 1.0))
 
 def classify_sequence(x, beta, motif_length):
-    #flipped_beta = flip_beta(beta)
     flipped_beta = beta[::-1]
 
     scan_length = int((len(x) - len(beta))/4 + 1)
+    #print('scan length', scan_length, len(x), len(beta))
 
     out1 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], beta) for i in range(scan_length)])
     out2 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], flipped_beta) for i in range(scan_length)])
 
-    print(out1.shape)
-    print(out2.shape)
-    print(out1)
-    print(out2)
-    #return int(np.any(out1 >= 1.0) or np.any(out2 >= 1.0))
-    return int(np.any((out1>=1.0) + (out2>=1.0)))
+    return int(np.any((out1>1.0) + (out2>1.0)))
 
 
     
@@ -202,19 +197,16 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
             if torch.cuda.is_available():
                 conv.cuda()
 
-            print("testing", (conv(X) >= 1.0).cpu().data.numpy().shape)
-
-
-            #output1 = (conv(X) >= 1.0).sum(dim=2)
-            #output2 = (conv(X_rc) >= 1.0).sum(dim=2)
-            #print('output1 shape', output1.cpu().data.numpy().shape, output1.cpu().data.numpy())
-            ##print('size!!!', output1.cpu().size)
-
-            #result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
-
+            
             output1 = conv(X)
             output2 = conv(X_rc)
-            max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+
+            #print('testing', output1.cpu().data.numpy().shape)
+            #test = torch.max(output1, output2).max(dim=2)[0]
+            #print(test)
+            #print(test.size)
+
+            max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
             result = np.append(result, max_output, axis=0)
 
 
@@ -238,12 +230,10 @@ class ConvDT(BaseEstimator):
         self.loss_function = loss_function
         self.data = []
         self.optimization_sample_size = optimization_sample_size
-        #self.conv = nn.Conv1d(1,optimization_sample_size[0],kernel_size=motif_length*4,stride=4)
         self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
                 
 
-    #def _find_optimal_beta(self, X_matrices, X_matrices_rc, y, weights, grid, cov_init=0.4, elite_num=20):
     def _find_optimal_beta(self, X, X_rc, indices, y, weights, grid, cov_init=0.4, elite_num=20):
 
         cov = cov_init
@@ -273,11 +263,13 @@ class ConvDT(BaseEstimator):
                 indices_cuda = indices_cuda.cuda()
             classifications = pytorch_conv(X.index_select(dim=0, index=indices_cuda), 
                                            X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=1000)
-            brute_classifications = np.array([classify_sequence(x, members[0], self.motif_length) for x in X.index_select(dim=0, index=indices_cuda).cpu().data.numpy()])
-            print(classifications.shape)
-            print(brute_classifications.shape)
-            print('total classifications', len(classifications))
-            print('matches', np.count_nonzero(classifications[0] == brute_classifications))
+            #brute_classifications = np.array([classify_sequence(x[0], members[0], self.motif_length) for x in X.index_select(dim=0, index=indices_cuda).cpu().data.numpy()])
+            #print(classifications.shape)
+            #print(brute_classifications.shape)
+            #print('total classifications', len(classifications))
+            #print('matches', np.count_nonzero(classifications[0] == brute_classifications))
+            #print('classifications', np.sum(classifications[0]))
+            #print('brute class', np.sum(brute_classifications))
 
 
             ## load the betas into the pytorch Conv1d filter
@@ -324,38 +316,13 @@ class ConvDT(BaseEstimator):
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
 
 
-        #if self.loss_function(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, mu), self.classes_, weights)) > best_score:
-        #    print('going with something else')
-        #    beta = best_memory
-        #else:
-        #    print('nah we good')
-        #    beta = mu
-    
-        #############
-        ## PYTORCH ##
-        #############
-
-        #classifications = pytorch_conv(X.index_select(dim=0, index=indices_cuda), 
-        #                               X_rc.index_select(dim=0, index=indices_cuda), mu, self.conv_single, single=True)
-
-        #print(classifications)
-        #print(classifications.shape)
-
         
         self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         if torch.cuda.is_available():
             self.conv_single = self.conv_single.cuda()
-        #output_forward = (self.conv_single(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-        #output_rc = (self.conv_single(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
         output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
         output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
         classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
-
-        #classifications = np.swapaxes((output_forward + output_rc).cpu().data.numpy().astype(bool),0,1)
-        print(classifications, classifications.shape)
-        
-        #print(classifications)
-        #print(classifications.shape)
 
         if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
             print("going with something else")
@@ -370,25 +337,10 @@ class ConvDT(BaseEstimator):
         #print(indices[np.where(output_classifications[0]==1)[0]], indices[np.where(output_classifications[0]==0)[0]])
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
 
-
-
-    #def _split_points(self, indices, X_matrices, X_matrices_rc, beta):
-    #    classification = classify_sequences(X_matrices, X_matrices_rc, beta)
-
-    #    left_split = indices[np.where(classification==1)[0]]
-    #    right_split = indices[np.where(classification==0)[0]]
-
-    #    return (left_split, right_split)
-
-    
-
     def fit(self, X, y, sample_weight=None):
 
         if sample_weight is None:
             sample_weight = np.ones(len(X))
-
-        print(sample_weight)
-        print(sample_weight.shape)
 
         self.data = []
         self.classes_ = np.unique(y)
@@ -396,8 +348,7 @@ class ConvDT(BaseEstimator):
         self.betas = []
         self.proportions = []
 
-        print('weights', sample_weight)
-
+        #print('weights', sample_weight)
         #create X_matrices and its reverse complement
         #X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
         X_gpu = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
@@ -423,19 +374,12 @@ class ConvDT(BaseEstimator):
                 print("splits", len(splits[0]), len(splits[-1]))
                 self.betas.append([b])
                 self.data.append([splits])
-                #self.betas.append([self._find_optimal_beta(X, X_rc, np.arange(len(X)), y, sample_weight, full_grid)])
-                #self.data.append([self._split_points(np.arange(len(X_matrices)), X_matrices, X_matrices_rc, self.betas[layer][0])])
-
-                #print('counts...', return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, self.betas[0][0]), self.classes_, sample_weight))
 
             else:
                 for i in range(len(self.betas[layer-1])):
                     left = self.data[layer-1][i][0]
                     right = self.data[layer-1][i][1]
-                    #print('left indices', left)
-                    #print('right indices', right)
 
-                    #left_beta = self._find_optimal_beta(X_matrices.take(left, axis=0), X_matrices_rc.take(left, axis=0), y.take(left), sample_weight.take(left), full_grid)
                     left_beta, left_children = self._find_optimal_beta(X_gpu, Xrc_gpu, left, y, sample_weight, full_grid)
                     print("going left", len(left_children[0]), len(left_children[1]))
                     
@@ -456,23 +400,11 @@ class ConvDT(BaseEstimator):
             right = self.data[-1][i][1]
             print("LEFT", len(left))
             print("RIGHT", len(right))
-            #left_proportion = (y.take(left) == self.classes_[0]).sum()/len(left)
-            #right_proportion = (y.take(right) == self.classes_[0]).sum()/len(right)
-
-            #left_proportion = sample_weight.take(left)[y.take(left) == self.classes_[0]].sum()/sample_weight.take(left).sum()
             left_proportion = np.average(y.take(left) == self.classes_[0], weights=sample_weight.take(left), axis=0)
-            right_proportion = np.average(y.take(left) == self.classes_[1], weights=sample_weight.take(left), axis=0)
-            #other_left_proportion2 = np.average(y.take(left) == self.classes_[1], weights=sample_weight.take(left), axis=0)
-            #print('left proportion', left_proportion)
-            #print('other left proportion', other_left_proportion)
-            #print('other left proportion class2', other_left_proportion2)
-            #right_proportion = sample_weight.take(right)[y.take(right) == self.classes_[0]].sum()/sample_weight.take(right).sum()
+            right_proportion = np.average(y.take(right) == self.classes_[0], weights=sample_weight.take(right), axis=0)
             self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
 
-
-        #print('straight score!', self.score(X,y))
-        #print('weighted score!', self.score(X,y,sample_weight))
-
+        print(self.proportions)
         
         return self
         
@@ -487,12 +419,15 @@ class ConvDT(BaseEstimator):
                 position = position*2
             else:
                 position = position*2+1
-
-        print("this data point ended up in position", position)
+                
         return self.proportions[position]
 
     def predict_proba(self, X):
         return np.array([self.predict_proba_one(x) for x in X])
+
+    #def predict_proba(self, X):
+    #    X_pytorch = Variable()
+    #    X_rc_pytorch = Variable()
 
     def predict(self, X):
         output = []
