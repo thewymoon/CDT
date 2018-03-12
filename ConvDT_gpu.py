@@ -14,9 +14,6 @@ import torch
 import torch.nn as nn
 from torch.autograd import Variable
 
-#import nltk
-
-
 ### FUNCTION DEFINITIONS ####
 
 # Loss Function
@@ -189,26 +186,17 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
 
             result = np.append(result, np.swapaxes((output1+output2).cpu().data.numpy().astype(bool),0,1), axis=0)
 
-
     else:
         result = np.empty((0,X_size), dtype=np.float64)
         for i in range(int(len(B)/limit)):
             conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
             if torch.cuda.is_available():
                 conv.cuda()
-
-            
+                
             output1 = conv(X)
             output2 = conv(X_rc)
-
-            #print('testing', output1.cpu().data.numpy().shape)
-            #test = torch.max(output1, output2).max(dim=2)[0]
-            #print(test)
-            #print(test.size)
-
             max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
             result = np.append(result, max_output, axis=0)
-
 
     return result
 
@@ -232,6 +220,7 @@ class ConvDT(BaseEstimator):
         self.optimization_sample_size = optimization_sample_size
         self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
+        self.conv_betas = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
                 
 
     def _find_optimal_beta(self, X, X_rc, indices, y, weights, grid, cov_init=0.4, elite_num=20):
@@ -240,9 +229,7 @@ class ConvDT(BaseEstimator):
         best_memory = None
         best_score = 999
         best_classifications = None
-
-
-
+        
         ### sample members (betas) ###
         for i in range(self.iterations):
             print('iteration:', i)
@@ -271,23 +258,6 @@ class ConvDT(BaseEstimator):
             #print('classifications', np.sum(classifications[0]))
             #print('brute class', np.sum(brute_classifications))
 
-
-            ## load the betas into the pytorch Conv1d filter
-            #self.conv.weight.data = torch.from_numpy(members.reshape(self.optimization_sample_size[0],1,self.motif_length*4)).float()
-            #self.conv.cuda()
-
-            ## use indices to only use some part of the dataset
-            #indices_cuda = Variable(torch.LongTensor(indices)).cuda()
-
-            ## run Conv1d filters over the sequences
-            #output_forward = (self.conv(X.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-            #output_rc = (self.conv(X_rc.index_select(dim=0, index=indices_cuda)) >= 1.0).sum(dim=2)
-
-            ## tricky way of classifying whether we see a motif or not in the forward or reverse complement of sequences
-            #total_output = (output_forward + output_rc).cpu().data.numpy()
-            #classifications = np.swapaxes(total_output.astype(bool),0,1)
-            #print(classifications.shape)
-
             # get the entropy scores for each member (beta)
             member_scores = np.apply_along_axis(two_class_weighted_entropy,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
 
@@ -299,9 +269,7 @@ class ConvDT(BaseEstimator):
                 best_classifications = classifications[best_scoring_indices[0]]
             else:
                 pass
-
-
-
+            
             print('best score so far:', best_score)
 
             ## Calculate the MLE ##
@@ -315,8 +283,6 @@ class ConvDT(BaseEstimator):
                 mu = self.alpha*new_mu + (1-self.alpha)*mu
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
 
-
-        
         self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         if torch.cuda.is_available():
             self.conv_single = self.conv_single.cuda()
@@ -333,8 +299,6 @@ class ConvDT(BaseEstimator):
             beta = mu
             output_classifications = classifications[0]
 
-
-        #print(indices[np.where(output_classifications[0]==1)[0]], indices[np.where(output_classifications[0]==0)[0]])
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
 
     def fit(self, X, y, sample_weight=None):
@@ -348,29 +312,22 @@ class ConvDT(BaseEstimator):
         self.betas = []
         self.proportions = []
 
-        #print('weights', sample_weight)
-        #create X_matrices and its reverse complement
-        #X_matrices = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X)])
         X_gpu = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
         Xrc_gpu = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
         if torch.cuda.is_available():
             X_gpu = X_gpu.cuda()
             Xrc_gpu = Xrc_gpu.cuda()
-        #X_matrices_rc = np.array([x_to_matrix(x, self.motif_length, self.sequence_length) for x in np.array(X_rc)])
-
 
         print('creating grid')
         nucleotides = ['A', 'C', 'G', 'T']
         keywords = itertools.product(nucleotides, repeat=self.motif_length)
         kmer_list = ["".join(x) for x in keywords]
         div = find_best_div(self.sequence_length, self.motif_length, 0.5)
-        #print(div)
         full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
 
         for layer in range(self.depth):
             if layer == 0:
                 b, splits = self._find_optimal_beta(X_gpu, Xrc_gpu, np.arange(len(X)), y, sample_weight, full_grid)
-                #print("b", b)
                 print("splits", len(splits[0]), len(splits[-1]))
                 self.betas.append([b])
                 self.data.append([splits])
@@ -386,14 +343,12 @@ class ConvDT(BaseEstimator):
                     right_beta, right_children = self._find_optimal_beta(X_gpu, Xrc_gpu, right, y, sample_weight, full_grid)
                     print("going right", len(right_children[0]), len(right_children[1]))
 
-
                     if i==0: #have to append instead of extend on first iteration
                         self.betas.append([left_beta, right_beta])
                         self.data.append([left_children, right_children])
                     else:
                         self.betas[layer].extend([left_beta, right_beta])
                         self.data[layer].extend([left_children, right_children])
-
 
         for i in range(len(self.betas[-1])):
             left = self.data[-1][i][0]
@@ -405,14 +360,12 @@ class ConvDT(BaseEstimator):
             self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
 
         print(self.proportions)
-        
         return self
         
 
     def predict_proba_one(self, x):
         current_layer = 0
         position = 0
-
         for current_layer in range(self.depth):
             out = classify_sequence(x, self.betas[current_layer][position], self.motif_length)
             if out==1:#self.classes_[0]: ## if motif found, go to left node
@@ -422,13 +375,39 @@ class ConvDT(BaseEstimator):
                 
         return self.proportions[position]
 
+    #def predict_proba_old(self, X):
+    #    return np.array([self.predict_proba_one(x) for x in X])
+
     def predict_proba(self, X):
-        return np.array([self.predict_proba_one(x) for x in X])
-
-    #def predict_proba(self, X):
-    #    X_pytorch = Variable()
-    #    X_rc_pytorch = Variable()
-
+        X_pytorch = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
+        Xrc_pytorch = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
+        
+        flattened_betas = np.array(list(itertools.chain(*self.betas)))
+        self.conv_betas.out_channels = len(flattened_betas)
+        
+        self.conv_betas.weight.data = torch.from_numpy(flattened_betas.reshape(len(flattened_betas),1,len(flattened_betas[0]))).float()
+        if torch.cuda.is_available():
+            self.conv_betas.cuda()
+            X_pytorch = X_pytorch.cuda()
+            Xrc_pytorch = Xrc_pytorch.cuda()
+        output1 = self.conv_betas(X_pytorch)
+        output2 = self.conv_betas(Xrc_pytorch)
+        betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+        
+        output = []
+        offset = 2**(self.depth) - 1
+        for i in range(len(X)):
+            idx = 0
+            for current_layer in range(self.depth):
+                if betas_output[idx, i]:
+                    idx = idx*2 + 1
+                else:
+                    idx = idx*2 + 2
+                
+            output.append(self.proportions[idx - offset])
+        
+        return np.array(output)
+        
     def predict(self, X):
         output = []
         thresh = 0.5
@@ -440,7 +419,6 @@ class ConvDT(BaseEstimator):
                 output.append(self.classes_[1])
 
         return output
-
 
 
     def score(self, X, y, sample_weight=None):
