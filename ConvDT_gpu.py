@@ -142,13 +142,16 @@ def x_to_string(x):
     return "".join([str(i) for i in x])
 
 
-def x_to_matrix(x, motif_length):
-    numpy_arrayx = np.array(x)
-    size = numpy_arrayx.itemsize
-    sequence_length = int(len(x)/4)
+#def x_to_matrix(x, motif_length):
+#    numpy_arrayx = np.array(x)
+#    size = numpy_arrayx.itemsize
+#    sequence_length = int(len(x)/4)
+#
+#    #print('size', size)
+#    return as_strided(numpy_arrayx, shape = [sequence_length - motif_length, motif_length*4], strides = [size*4,size])
 
-    #print('size', size)
-    return as_strided(numpy_arrayx, shape = [sequence_length - motif_length, motif_length*4], strides = [size*4,size])
+def x_to_matrix(x, motif_length):
+    return np.vstack([x[i:i+motif_length*4] for i in range(0,len(x)-(motif_length-1)*4,4)])
 
 
 def motif_to_beta(motif):
