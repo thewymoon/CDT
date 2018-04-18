@@ -1,15 +1,16 @@
 
 from ConvDT_gpu import ConvDT
+import copy
 
 ###########################################
 ### Implementation of Gradient Boosting ###
 ###########################################
 
-from sklearn.ensemble.gradient_boosting as GB
+import sklearn.ensemble.gradient_boosting as GB
 
-class GradientBoostedConvDT(base_ConvDT):
+class GradientBoostedConvDT():
 
-    def __init__(self, num_estimators, learning_rate):
+    def __init__(self, base_ConvDT, num_estimators, learning_rate):
         self.num_estimators = num_estimators
         self.learning_rate = learning_rate
         self.loss_ = GB.BinomialDeviance(2)
@@ -21,7 +22,8 @@ class GradientBoostedConvDT(base_ConvDT):
         ## Get initial constant estimate ##
         self.init_estimator = self.loss_.init_estimator()
         self.init_estimator.fit(X,y)
-        y_pred = self.init_estimator.fit(X,y)
+        y_pred = self.init_estimator.predict(X)
+        print(y_pred)
 
         ## Start it off by getting the first residuals ##
         residuals = self.loss_.negative_gradient(y, y_pred)
@@ -53,7 +55,7 @@ class GradientBoostedConvDT(base_ConvDT):
         output = self.init_estimator(X)
 
         for estimator in self.estimators_:
-            predicted_probs = estimator.predict_proba(
+            predicted_probs = estimator.predict_proba(X)
             output += self.learning_rate * np.log(predicted_probs[:,0] / predicted_probs[:,1])
 
         return output
