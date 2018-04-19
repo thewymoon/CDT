@@ -1,4 +1,4 @@
-
+import numpy as np
 from ConvDT_gpu import ConvDT
 import copy
 
@@ -22,8 +22,7 @@ class GradientBoostedConvDT():
         ## Get initial constant estimate ##
         self.init_estimator = self.loss_.init_estimator()
         self.init_estimator.fit(X,y)
-        y_pred = self.init_estimator.predict(X)
-        print(y_pred)
+        y_pred = self.init_estimator.predict(X).ravel()
 
         ## Start it off by getting the first residuals ##
         residuals = self.loss_.negative_gradient(y, y_pred)
@@ -45,17 +44,18 @@ class GradientBoostedConvDT():
 
         return self
 
-    def _decision_function_gradual(X, y_current):
-        predicted_probs = self.estimators_[-1].predict_proba(X)
+    def _decision_function_gradual(self, X, y_current):
+        decision_output = self.estimators_[-1].decision_function(X)
 
-        return y_current + (self.learning_rate * np.log(predicted_probs[:,0] / predicted_probs[:,1]))
+        return (y_current + (self.learning_rate * decision_output))
+        #return (y_current + (self.learning_rate * np.array(predicted_probs[:,0])))
 
-    def decision_function(X):
+    def decision_function(self, X):
         
-        output = self.init_estimator(X)
+        output = self.init_estimator.predict(X).ravel()
 
         for estimator in self.estimators_:
-            predicted_probs = estimator.predict_proba(X)
-            output += self.learning_rate * np.log(predicted_probs[:,0] / predicted_probs[:,1])
+            decision_output = estimator.decision_function(X)
+            output += self.learning_rate * decision_output
 
         return output

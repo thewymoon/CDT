@@ -5,6 +5,7 @@ import itertools
 from numpy.lib.stride_tricks import as_strided
 from scipy.stats import multivariate_normal
 import scipy
+from scipy.special import expit
 from multiprocessing import Pool
 from functools import partial
 import matplotlib.pyplot as plt
@@ -174,6 +175,19 @@ def normalize_dict(d):
 def _get_member_scores(X_matrices, X_matrices_rc, y, classes, weights, m):
             return two_class_weighted_entropy(return_counts_weighted(y, classify_sequences(X_matrices, X_matrices_rc, m), classes, weights))
 
+## ASSUMES two class ##
+def child_variance(y_values, classifications):
+    output = []
+    classes = np.unique(classifications)
+    for i in range(len(classifications)):
+        total = 0
+        for unique in classes:
+            temp_indices = np.where(classifications[i]==unique)[0]
+            total += len(temp_indices)*np.var(y_values[temp_indices])
+        output.append(total)
+    return np.array(output)
+
+
 
 def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
     X_size = X.size(0)
@@ -211,7 +225,7 @@ def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
 
 from sklearn.base import BaseEstimator, ClassifierMixin
 class ConvDT(BaseEstimator):
-    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000)):
+    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), Regression=False):
         self.depth = depth
         self.motif_length = motif_length
         self.sequence_length = sequence_length
@@ -224,13 +238,14 @@ class ConvDT(BaseEstimator):
         self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_betas = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
+        self.Regression=Regression
                 
 
     def _find_optimal_beta(self, X, X_rc, indices, y, weights, grid, cov_init=0.4, elite_num=20):
 
         cov = cov_init
         best_memory = None
-        best_score = 999
+        best_score = 99999
         best_classifications = None
         
         ### sample members (betas) ###
@@ -262,7 +277,12 @@ class ConvDT(BaseEstimator):
             #print('brute class', np.sum(brute_classifications))
 
             # get the entropy scores for each member (beta)
-            member_scores = np.apply_along_axis(two_class_weighted_entropy,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
+            if self.Regression:
+                #member_scores = np.array([child_variance(y[indices], c) for c in classifications])
+                member_scores = child_variance(np.array(y[indices]), classifications)
+            else:
+                member_scores = np.apply_along_axis(two_class_weighted_entropy,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
+
 
             #print('getting best scores')
             best_scoring_indices = np.argsort(member_scores)[0:elite_num]
@@ -292,8 +312,10 @@ class ConvDT(BaseEstimator):
         output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
         output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
         classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+        print('RIGHT HERE', classifications.shape)
 
-        if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
+        #if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
+        if child_variance(y[indices], classifications)[0] > best_score:
             print("going with something else")
             beta = best_memory
             output_classifications = best_classifications
@@ -353,14 +375,24 @@ class ConvDT(BaseEstimator):
                         self.betas[layer].extend([left_beta, right_beta])
                         self.data[layer].extend([left_children, right_children])
 
-        for i in range(len(self.betas[-1])):
-            left = self.data[-1][i][0]
-            right = self.data[-1][i][1]
-            print("LEFT", len(left))
-            print("RIGHT", len(right))
-            left_proportion = np.average(y.take(left) == self.classes_[0], weights=sample_weight.take(left), axis=0)
-            right_proportion = np.average(y.take(right) == self.classes_[0], weights=sample_weight.take(right), axis=0)
-            self.proportions.extend([(left_proportion, 1-left_proportion), (right_proportion, 1-right_proportion)])
+        if self.Regression:
+            for i in range(len(self.betas[-1])):
+                left = self.data[-1][i][0]
+                right = self.data[-1][i][1]
+                print("LEFT", len(left))
+                print("RIGHT", len(right))
+                left_output = np.average(y.take(left), weights=sample_weight.take(left), axis=0)
+                right_output = np.average(y.take(right), weights=sample_weight.take(right), axis=0)
+                self.proportions.extend([left_output, right_output])
+        else:
+            for i in range(len(self.betas[-1])):
+                left = self.data[-1][i][0]
+                right = self.data[-1][i][1]
+                print("LEFT", len(left))
+                print("RIGHT", len(right))
+                left_output = np.average(y.take(left) == self.classes_[0], weights=sample_weight.take(left), axis=0)
+                right_output = np.average(y.take(right) == self.classes_[0], weights=sample_weight.take(right), axis=0)
+                self.proportions.extend([left_output, right_output])
 
         print(self.proportions)
         return self
@@ -381,7 +413,46 @@ class ConvDT(BaseEstimator):
     #def predict_proba_old(self, X):
     #    return np.array([self.predict_proba_one(x) for x in X])
 
+    #def predict_proba(self, X):
+    #    X_pytorch = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
+    #    Xrc_pytorch = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
+    #    
+    #    flattened_betas = np.array(list(itertools.chain(*self.betas)))
+    #    self.conv_betas.out_channels = len(flattened_betas)
+    #    
+    #    self.conv_betas.weight.data = torch.from_numpy(flattened_betas.reshape(len(flattened_betas),1,len(flattened_betas[0]))).float()
+    #    if torch.cuda.is_available():
+    #        self.conv_betas.cuda()
+    #        X_pytorch = X_pytorch.cuda()
+    #        Xrc_pytorch = Xrc_pytorch.cuda()
+    #    output1 = self.conv_betas(X_pytorch)
+    #    output2 = self.conv_betas(Xrc_pytorch)
+    #    betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+    #    
+    #    output = []
+    #    offset = 2**(self.depth) - 1
+    #    for i in range(len(X)):
+    #        idx = 0
+    #        for current_layer in range(self.depth):
+    #            if betas_output[idx, i]:
+    #                idx = idx*2 + 1
+    #            else:
+    #                idx = idx*2 + 2
+    #            
+    #        output.append(self.proportions[idx - offset])
+    #    
+    #    return np.array(output)
+
     def predict_proba(self, X):
+        decision_output = self.decision_function(X)
+        if self.Regression:
+            proba = expit(decision_output)
+            return np.array([(x, 1-x) for x in decision_output])
+
+        else:
+            return np.array([(x, 1-x) for x in decision_output])
+
+    def decision_function(self, X):
         X_pytorch = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
         Xrc_pytorch = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
         
