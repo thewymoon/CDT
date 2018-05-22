@@ -1,5 +1,5 @@
 import numpy as np
-from ConvDT_gpu import ConvDT
+from ConvDT_gpu import *
 import copy
 
 ###########################################
