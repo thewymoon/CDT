@@ -268,7 +268,7 @@ class ConvDTClassifier2d(BaseEstimator):
 
 
 class ConvDTClassifierDNA(BaseEstimator):
-    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000)):
+    def __init__(self, depth, motif_length, sequence_length, iterations=10, num_processes=4, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), regularization=0):
         self.depth = depth
         self.motif_length = motif_length
         self.sequence_length = sequence_length
@@ -281,6 +281,7 @@ class ConvDTClassifierDNA(BaseEstimator):
         self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
         self.conv_betas = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
+        self.regularization = regularization
                 
 
     def _find_optimal_beta(self, X, X_rc, indices, y, weights, grid, cov_init=0.4, elite_num=20):
@@ -291,6 +292,9 @@ class ConvDTClassifierDNA(BaseEstimator):
         best_classifications = None
         
         ### sample members (betas) ###
+        if len(indices)==0:
+            return np.zeros(4*self.motif_length), ([],[])
+
         for i in range(self.iterations):
             print('iteration:', i)
             if i==0:
@@ -305,6 +309,8 @@ class ConvDTClassifierDNA(BaseEstimator):
             ####################
 
             #### TESTING ####
+            #print(indices)
+            print('indices shape', indices.shape)
             indices_cuda = Variable(torch.LongTensor(indices))
             if torch.cuda.is_available():
                 indices_cuda = indices_cuda.cuda()
@@ -312,6 +318,7 @@ class ConvDTClassifierDNA(BaseEstimator):
                                            X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=1000)
 
             member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
+            member_scores += self.regularization*np.abs(members).sum(axis=1)
 
 
             #print('getting best scores')
@@ -409,8 +416,12 @@ class ConvDTClassifierDNA(BaseEstimator):
             right = self.data[-1][i][1]
             print("LEFT", len(left))
             print("RIGHT", len(right))
-            left_output = [np.average(y.take(left) == c, weights=sample_weight.take(left), axis=0) for c in self.classes_]
-            right_output = [np.average(y.take(right) == c, weights=sample_weight.take(right), axis=0) for c in self.classes_]
+            left_output = [np.average(y.take(left) == c, 
+                weights=sample_weight.take(left),
+                axis=0) if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
+            right_output = [np.average(y.take(right) == c,
+                weights=sample_weight.take(right), 
+                axis=0) if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
             self.proportions.extend([left_output, right_output])
 
 

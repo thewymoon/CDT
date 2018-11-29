@@ -22,6 +22,10 @@ def my_entropy(p_vec, pseudo=0.00000001):
 def two_class_weighted_entropy(counts, pseudo=.01):
     return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
 
+def two_class_weighted_entropy_regularized(counts, weights, regularization=0, pseudo=0.01):
+    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts) + regularization*np.abs(weights).sum()
+
+
 def modified_entropy(p_vec, pseudo=0.001):
     summed = np.sum(p_vec)
     if summed > 0:
