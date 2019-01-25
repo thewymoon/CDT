@@ -5,6 +5,7 @@ from scipy.stats import multivariate_normal, entropy
 import scipy
 from scipy.special import expit
 import torch.nn as nn
+import itertools
 
 
 class GradientDescentOptimizer():
@@ -57,8 +58,8 @@ class GradientDescentOptimizer():
 
             #print('LEFT AND RIGHT: ', len(np.where(max_vals > 1)[0]), len(np.where(max_vals <= 1)[0]))
 
-            P = (y[indices]==1).sum()
-            N = (y[indices]==0).sum()
+            P = ((y[indices]==1)).sum()
+            N = ((y[indices]==0)).sum()
 
             p = (max_vals_expit * (y[indices]==1)).sum()
             n = (max_vals_expit * (y[indices]==0)).sum()
@@ -86,28 +87,26 @@ class GradientDescentOptimizer():
 
 class CEOptimizer():
     
-    def __init__(self, param_dimensions, iterations, optimization_sample_size, elite_num, cov_init, classes, alpha):
+    def __init__(self, loss_function, motif_length, sequence_length, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8):
         self.iterations = iterations
         self.cov_init = cov_init
         self.optimization_sample_size = optimization_sample_size
         self.elite_num = elite_num
         self.loss_function = loss_function
-        self.conv_single = nn.Conv1d(1,1,kernel_size=param_dimensions,stride=4,bias=False)
-        self.size = param_dimensions
+        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
+        self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
+        self.motif_length = motif_length
+        self.sequence_length = sequence_length
         self.classes_ = classes
         self.alpha = alpha
         self.loss_history = []
 
-    def _initialize_beta():
         print('creating grid')
         nucleotides = ['A', 'C', 'G', 'T']
         keywords = itertools.product(nucleotides, repeat=self.motif_length)
         kmer_list = ["".join(x) for x in keywords]
         div = find_best_div(self.sequence_length, self.motif_length, 0.5)
-        full_grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
-        
-        return 0
-
+        self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
 
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
 
@@ -118,12 +117,12 @@ class CEOptimizer():
 
         ### sample members (betas) ###
         if len(indices)==0:
-            return np.zeros(self.size), ([],[])
+            return np.zeros(self.motif_length*4), ([],[])
 
         for i in range(self.iterations):
             print('iteration:', i)
             if i==0:
-                members = grid[np.random.choice(range(len(grid)), size=self.optimization_sample_size[0], replace=False)]
+                members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
             else:
                 members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[1])
 
@@ -143,11 +142,11 @@ class CEOptimizer():
                                            X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=1000)
 
             member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-            member_scores += self.regularization*np.abs(members).sum(axis=1)
+            #member_scores += self.regularization*np.abs(members).sum(axis=1)
 
 
             #print('getting best scores')
-            best_scoring_indices = np.argsort(member_scores)[0:elite_num]
+            best_scoring_indices = np.argsort(member_scores)[0:self.elite_num]
             if member_scores[best_scoring_indices[0]] < best_score:
                 best_score = member_scores[best_scoring_indices[0]]
                 best_memory = members[best_scoring_indices[0]]
@@ -180,7 +179,7 @@ class CEOptimizer():
         #if child_variance(y[indices], classifications)[0] > best_score:
         #print(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
         #print(self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])))
-        if self.loss_function(y[indices], classifications, self.classes_, weights[indices])[0] > best_score:
+        if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
             print("going with something else")
             beta = best_memory
             output_classifications = best_classifications
@@ -190,4 +189,88 @@ class CEOptimizer():
             output_classifications = classifications[0]
 
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
+
+
+class SimulatedAnnealingOptimizer():
+
+    def __init__(self, loss_function, iterations, motif_length, sequence_length, T_initial, cooling_factor, step_size, classes=np.array([0,1])):
+        self.iterations = iterations
+        self.loss_function = loss_function
+        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
+        self.motif_length = motif_length
+        self.T_initial = T_initial
+        self.step_size = step_size
+        self.cooling_factor = cooling_factor
+        self.sequence_length = sequence_length
+        self.classes_ = classes
+        self.loss_history = []
+    
+    def _initialize_beta(self):
+        nucleotides = [[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]]
+        best_div = find_best_div(200, self.motif_length, 0.5)
+        initial_beta = (np.array([nucleotides[np.random.randint(4)] for _ in range(self.motif_length)])/best_div).flatten()
+
+        print(initial_beta)
+        return initial_beta
+
+    def find_optimal_beta(self, X, X_rc, indices, y, weights):
+        beta = self._initialize_beta()
+
+        indices_cuda = Variable(torch.LongTensor(indices))
+        if torch.cuda.is_available():
+            indices_cuda = indices_cuda.cuda()
+            
+        self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,self.motif_length*4)).float()
+        if torch.cuda.is_available():
+            self.conv_single = self.conv_single.cuda()
+        output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
+        output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
+        classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1).cpu().data.numpy(),0,1)
+
+        current_cost = self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0])
+
+        self.loss_history.append(current_cost)
+
+        T = self.T_initial
+
+        for i in range(self.iterations):
+            print(f'current cost, {current_cost}')
+            update_beta = np.random.normal(beta, self.step_size) 
+
+            self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,self.motif_length*4)).float()
+            if torch.cuda.is_available():
+                self.conv_single = self.conv_single.cuda()
+            output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
+            output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
+            classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1).cpu().data.numpy(),0,1)
+
+            update_cost = self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0])
+
+            if update_cost < current_cost:
+                print("updated")
+                beta = update_beta
+                current_cost = update_cost
+
+            else:
+                transition_probability = np.exp((current_cost - update_cost)/T)
+                print(f'current cost {current_cost} and update cost {update_cost}')
+                print(transition_probability)
+                if np.random.random() < transition_probability:
+                    print("updated")
+                    beta = update_beta
+                    current_cost = update_cost
+
+            self.loss_history.append(current_cost)
+
+            T *= self.cooling_factor
+
+        self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,self.motif_length*4)).float()
+        if torch.cuda.is_available():
+            self.conv_single = self.conv_single.cuda()
+        output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
+        output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
+        classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1).cpu().data.numpy(),0,1)
+
+        return beta, (indices[np.where(classifications==1)[0]], indices[np.where(classifications==0)[0]])
+
 

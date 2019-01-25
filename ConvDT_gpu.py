@@ -78,7 +78,6 @@ class ConvDTClassifier2d(BaseEstimator):
             # get the entropy scores for each member (beta)
             member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
 
-
             #print('getting best scores')
             best_scoring_indices = np.argsort(member_scores)[0:self.CE_elite_num]
             if member_scores[best_scoring_indices[0]] < best_score:
@@ -134,7 +133,6 @@ class ConvDTClassifier2d(BaseEstimator):
         X = X_flattened.reshape(X_flattened.shape[0],self.image_size[0],self.image_size[1])
         print(X.shape)
 
-
         if sample_weight is None:
             sample_weight = np.ones(len(X))
 
@@ -189,7 +187,6 @@ class ConvDTClassifier2d(BaseEstimator):
         print(self.proportions)
         return self
         
-
     def predict_proba_one(self, x):
         current_layer = 0
         position = 0
