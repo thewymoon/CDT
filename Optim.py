@@ -10,12 +10,13 @@ import itertools
 
 class GradientDescentOptimizer():
 
-    def __init__(self,param_dimensions,loss_function,iterations=0,step_size=1,alpha=1,classes=np.array([0,1])):
+    def __init__(self,motif_length,sequence_length,loss_function,iterations=0,step_size=1,alpha=1,classes=np.array([0,1])):
         self.iterations = iterations
         self.step_size = step_size
         self.alpha = alpha
-        self.size = param_dimensions
-        self.conv_single = nn.Conv1d(1,1,kernel_size=param_dimensions,stride=4,bias=False)
+        self.motif_length = motif_length
+        self.sequence_length = sequence_length
+        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
         self.loss_function = loss_function
         self.classes_ = classes
         self.loss_history = []
@@ -23,8 +24,8 @@ class GradientDescentOptimizer():
     def _initialize_beta(self):
 
         nucleotides = [[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]]
-        best_div = find_best_div(200, self.size//4, 0.5)
-        initial_beta = (np.array([nucleotides[np.random.randint(4)] for _ in range(self.size//4)])/best_div).flatten()
+        best_div = find_best_div(self.sequence_length, self.motif_length, 0.5)
+        initial_beta = (np.array([nucleotides[np.random.randint(4)] for _ in range(self.motif_length)])/best_div).flatten()
 
         print(initial_beta)
         return initial_beta
@@ -34,7 +35,7 @@ class GradientDescentOptimizer():
         beta = self._initialize_beta()
 
         if len(indices)==0:
-            return np.zeros(self.size), ([], [])
+            return np.zeros(self.motif_length*4), ([], [])
 
         for i in range(self.iterations):
             #print(f'beta: {beta}')
@@ -42,7 +43,7 @@ class GradientDescentOptimizer():
             if torch.cuda.is_available():
                 indices_cuda = indices_cuda.cuda()
                 
-            self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,self.size)).float()
+            self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,-1)).float()
             if torch.cuda.is_available():
                 self.conv_single = self.conv_single.cuda()
             output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
@@ -58,14 +59,14 @@ class GradientDescentOptimizer():
 
             #print('LEFT AND RIGHT: ', len(np.where(max_vals > 1)[0]), len(np.where(max_vals <= 1)[0]))
 
-            P = ((y[indices]==1)).sum()
-            N = ((y[indices]==0)).sum()
+            P = ((y[indices]==1) * weights[indices]).sum()
+            N = ((y[indices]==0) * weights[indices]).sum()
 
-            p = (max_vals_expit * (y[indices]==1)).sum()
-            n = (max_vals_expit * (y[indices]==0)).sum()
+            p = (max_vals_expit * (y[indices]==1) * weights[indices]).sum()
+            n = (max_vals_expit * (y[indices]==0) * weights[indices]).sum()
 
-            p_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==1))).T.sum(axis=0)
-            n_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==0))).T.sum(axis=0)
+            p_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==1) * weights[indices])).T.sum(axis=0)
+            n_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==0) * weights[indices])).T.sum(axis=0)
 
             if i%30==0:
                 print(f'iteration: {i}')
