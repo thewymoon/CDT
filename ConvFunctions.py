@@ -168,9 +168,9 @@ def convDNA_single(X, X_rc, B):
     conv = torch.nn.Conv1d(1,1,kernel_size=len(B),stride=4,bias=False)
     conv.weight.data = torch.from_numpy(B).float().reshape(1,1,-1)
     if torch.cuda.is_available():
-        conv.cuda()
+        conv = conv.cuda()
 
-    conv(X)
+    #conv(X)
 
     forward = conv(X).cpu().data.numpy().squeeze(1)
     reverse = conv(X_rc).cpu().data.numpy().squeeze(1)
@@ -209,7 +209,7 @@ def pytorch_convDNA(X, X_rc, B, conv, single=False, limit=2000):
     for i in range(int(len(B)/limit)):
         conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,len(B[0]))).float()
         if torch.cuda.is_available():
-            conv.cuda()
+            conv = conv.cuda()
             
         output1 = conv(X)
         output2 = conv(X_rc)
