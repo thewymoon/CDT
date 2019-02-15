@@ -170,8 +170,6 @@ def convDNA_single(X, X_rc, B):
     if torch.cuda.is_available():
         conv = conv.cuda()
 
-    #conv(X)
-
     forward = conv(X).cpu().data.numpy().squeeze(1)
     reverse = conv(X_rc).cpu().data.numpy().squeeze(1)
 
