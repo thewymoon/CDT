@@ -184,13 +184,17 @@ def convDNA_single_maxinfo(X, X_rc, B):
 
     max_vals = np.max((forward_max, reverse_max), axis=0)
     max_pos = np.argmax((forward_max, reverse_max), axis=0)
+    #max_pos = np.argmax((forward, reverse), axis = 0)
+    forward_max_pos = np.argmax(forward, axis=1)
+    reverse_max_pos = np.argmax(reverse, axis=1)
     max_strand = np.argmax((forward_max, reverse_max), axis=0) ### 0 for forward and 1 for reverse
 
 
     X_cpu = X.data.cpu().numpy().squeeze(1)
     X_rc_cpu = X_rc.data.cpu().numpy().squeeze(1)
     
-    max_sequences = np.array([X_cpu[i][int(4*max_pos[i]):int(4*(max_pos[i])+len(B))] if max_strand[i]==0 else X_rc_cpu[i][int(4*max_pos[i]):int(4*(max_pos[i])+len(B))] for i in range(X_size)])
+    #max_sequences = np.array([X_cpu[i][int(4*max_pos[i]):int(4*(max_pos[i])+len(B))] if max_strand[i]==0 else X_rc_cpu[i][int(4*max_pos[i]):int(4*(max_pos[i])+len(B))] for i in range(X_size)])
+    max_sequences = np.array([X_cpu[i][int(4*forward_max_pos[i]):int(4*(forward_max_pos[i])+len(B))] if max_strand[i]==0 else X_rc_cpu[i][int(4*reverse_max_pos[i]):int(4*(reverse_max_pos[i])+len(B))] for i in range(X_size)])
 
     return max_vals, max_sequences
 

@@ -583,14 +583,15 @@ class ConvDTClassifierDNA(BaseEstimator):
             right = self.data[-1][i][1]
             print("LEFT", len(left))
             print("RIGHT", len(right))
-            #left_output = [np.average(y.take(left) == c, 
-            #    weights=sample_weight.take(left),
-            #    axis=0) if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
-            #right_output = [np.average(y.take(right) == c,
-            #    weights=sample_weight.take(right), 
-            #    axis=0) if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
-            left_output = [((y.take(left)==c)*(sample_weight.take(left))).sum() if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
-            right_output = [((y.take(right)==c)*(sample_weight.take(right))).sum() if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
+            left_output = [np.average(y.take(left) == c, 
+                weights=sample_weight.take(left),
+                axis=0) if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
+            right_output = [np.average(y.take(right) == c,
+                weights=sample_weight.take(right), 
+                axis=0) if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
+            ### For making proportions remember how many samples instead of normalized
+            #left_output = [((y.take(left)==c)*(sample_weight.take(left))).sum() if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
+            #right_output = [((y.take(right)==c)*(sample_weight.take(right))).sum() if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
             self.proportions.extend([left_output, right_output])
 
 

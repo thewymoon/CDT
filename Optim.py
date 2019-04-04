@@ -39,6 +39,7 @@ class GradientDescentOptimizer():
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
 
         beta_history = []
+        loss_history = []
         beta = self._initialize_beta()
 
         if len(indices)==0:
@@ -75,14 +76,14 @@ class GradientDescentOptimizer():
             n_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==0) * weights[indices])).T.sum(axis=0)
 
             if i%100==0:
-                print(f'iteration: {i}')
+                #print(f'iteration: {i}')
                 loss = self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0])
-                self.loss_history.append(loss)
+                loss_history.append(loss)
+                #loss_history.append(IG(P,N,p,n))
                 beta_history.append(beta)
-                print('loss function: ', loss)
-                print(f'Information Gain {IG(P,N,p,n)}')
-                print(f'Real Information Gain {IG(P,N,p_true,n_true)}')
-                #print(beta)
+                #print('loss function: ', loss)
+                #print(f'Information Gain {IG(P,N,p,n)}')
+                #print(f'Real Information Gain {IG(P,N,p_true,n_true)}')
 
 
             gradient = (1/(P+N))*(-(p_prime + n_prime)*np.log((p+n)/(P+N-p-n)) + p_prime*np.log(p/(P-p)) + n_prime*np.log(n/(N-n)))
@@ -90,6 +91,7 @@ class GradientDescentOptimizer():
         
         beta_history.append(beta)
         self.beta_history.append(beta_history)
+        self.loss_history.append(loss_history)
 
         max_vals, max_sequences = convDNA_single_maxinfo(X.index_select(dim=0, index=indices_cuda), X_rc.index_select(dim=0, index=indices_cuda), beta.reshape(1,-1))
 
@@ -238,6 +240,7 @@ class CEOptimizer():
         best_classifications = None
 
         beta_history = []
+        loss_history = []
 
         ### sample members (betas) ###
         if len(indices)==0:
@@ -281,7 +284,8 @@ class CEOptimizer():
                 best_classifications = classifications[best_scoring_indices[0]]
             else:
                 pass
-            self.loss_history.append(best_score)
+            loss_history.append(best_score)
+
             
             print('best score so far:', best_score)
 
@@ -319,6 +323,7 @@ class CEOptimizer():
             output_classifications = classifications[0]
 
         self.beta_history.append(beta_history)
+        self.loss_history.append(loss_history)
 
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
 
@@ -361,9 +366,14 @@ class SimulatedAnnealingOptimizer():
         return proposed_beta
 
 
+
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
         beta = self._initialize_beta()
         beta_history = []
+        loss_history = []
+
+        if len(indices)==0:
+            return np.zeros(self.motif_length*4), ([],[])
 
         indices_cuda = Variable(torch.LongTensor(indices))
         if torch.cuda.is_available():
@@ -378,17 +388,17 @@ class SimulatedAnnealingOptimizer():
 
         current_cost = self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0])
 
-        self.loss_history.append(current_cost)
+        loss_history.append(current_cost)
 
         T = self.T_initial
 
         for i in range(self.iterations):
-            if i%50==0:
+            if i%100==0:
                 beta_history.append(beta)
-                print(f'current cost, {current_cost}')
+                #print(f'current cost, {current_cost}')
             #update_beta = np.random.normal(beta, self.step_size) 
-            #update_beta = self._propose_new_smallest(beta)
-            update_beta = self._propose_new_small(beta)
+            update_beta = self._propose_new_smallest(beta)
+            #update_beta = self._propose_new_small(beta)
 
             self.conv_single.weight.data = torch.from_numpy(update_beta.reshape(1,1,self.motif_length*4)).float()
             if torch.cuda.is_available():
@@ -413,7 +423,7 @@ class SimulatedAnnealingOptimizer():
                     beta = update_beta
                     current_cost = update_cost
 
-            self.loss_history.append(current_cost)
+            loss_history.append(current_cost)
 
             T *= self.cooling_factor
 
@@ -425,6 +435,7 @@ class SimulatedAnnealingOptimizer():
         classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1).cpu().data.numpy(),0,1)
 
         self.beta_history.append(beta_history) 
+        self.loss_history.append(loss_history)
 
         return beta, (indices[np.where(classifications[0]==1)[0]], indices[np.where(classifications[0]==0)[0]])
 
