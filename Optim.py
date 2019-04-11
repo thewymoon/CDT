@@ -202,7 +202,6 @@ class SumGradientDescentOptimizer():
 
         max_vals, max_sequences = convDNA_single_maxinfo(X.index_select(dim=0, index=indices_cuda), X_rc.index_select(dim=0, index=indices_cuda), beta.reshape(1,-1))
 
-        #print((np.where(max_vals > 1)[0], np.where(max_vals <= 1)[0]))
         return beta, (indices[np.where(max_vals > 1)[0]], indices[np.where(max_vals <= 1)[0]])
 
 
@@ -365,8 +364,6 @@ class SimulatedAnnealingOptimizer():
 
         return proposed_beta
 
-
-
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
         beta = self._initialize_beta()
         beta_history = []
@@ -416,15 +413,11 @@ class SimulatedAnnealingOptimizer():
 
             else:
                 transition_probability = np.exp((current_cost - update_cost)/T)
-                #print(f'current cost {current_cost} and update cost {update_cost}')
-                #print(transition_probability)
                 if np.random.random() < transition_probability:
-                    #print("updated")
                     beta = update_beta
                     current_cost = update_cost
 
             loss_history.append(current_cost)
-
             T *= self.cooling_factor
 
         self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,self.motif_length*4)).float()
