@@ -264,3 +264,23 @@ def pytorch_conv_exact2d(X, B, conv, threshold=500, limit=50):
     result = np.append(result, output, axis=0)
 
     return result
+
+
+
+def pytorch_convDNA_single(X, X_rc B, conv):
+    self.conv.weight.data = torch.from_numpy(B).float()
+    if torch.cuda.is_available():
+        self.conv = self.conv.cuda()
+    output_forward = self.conv(X.index_select(dim=0, index=indices_cuda))
+    output_rc = self.conv(X_rc.index_select(dim=0, index=indices_cuda))
+    classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+    return classifications
+
+
+def pytorch_conv2d_single(X, B, conv, threshold, limit):
+    if torch.cuda.is_available():
+        self.conv = self.conv.cuda()
+    output_forward = self.conv(X.index_select(dim=0, index=indices_cuda))
+    classifications = np.swapaxes((output_forward.max(dim=2)[0].max(dim=2)[0] >= self.threshold).cpu().data.numpy(),0,1)
+    return classifications
+
