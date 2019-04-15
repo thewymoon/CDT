@@ -208,7 +208,7 @@ class SumGradientDescentOptimizer():
 
 class CEOptimizer():
     
-    def __init__(self, loss_function, motif_length, sequence_length, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True):
+    def __init__(self, loss_function, motif_length, sequence_length, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=500, filters_limit=512):
         self.iterations = iterations
         self.cov_init = cov_init
         self.optimization_sample_size = optimization_sample_size
@@ -223,6 +223,9 @@ class CEOptimizer():
         self.loss_history = []
         self.beta_history = []
         self.smart_init = smart_init
+        self.DNA = DNA
+        self.threshold = threshold
+        self.filters_limit = filters_limit
 
         print('creating grid')
         nucleotides = ['A', 'C', 'G', 'T']
@@ -230,6 +233,15 @@ class CEOptimizer():
         kmer_list = ["".join(x) for x in keywords]
         div = find_best_div(self.sequence_length, self.motif_length, 0.5)
         self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
+    
+    def _initialize_CE(self):
+        if self.DNA:
+            members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+        else:
+            members = np.array([np.random.random((self.filter_size, self.filter_size)) for i in range(self.optimization_sample_size[0])])
+
+        return members
+
 
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
 
@@ -249,7 +261,8 @@ class CEOptimizer():
             print('iteration:', i)
             if i==0:
                 if self.smart_init:
-                    members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+                    #members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+                    members = self._initialize_CE()
                 else:
                     mu = self.grid[np.random.randint(len(self.grid))]
                     beta_history.append(mu)
@@ -269,8 +282,12 @@ class CEOptimizer():
             indices_cuda = Variable(torch.LongTensor(indices))
             if torch.cuda.is_available():
                 indices_cuda = indices_cuda.cuda()
-            classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
-                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=1000)
+            if self.DNA:
+                classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
+                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=self.filters_limit)
+            else:
+                classifications = pytorch_conv2d(X.index_select(dim=0, index=indices_cuda), members, self.conv, threshold=self.threshold, limit=self.filters_limit)
+
 
             member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
             #member_scores += self.regularization*np.abs(members).sum(axis=1)
