@@ -232,23 +232,23 @@ class CEOptimizer():
         if self.DNA:
             self.conv_single = nn.Conv1d(1,1,kernel_size=filter_size*4,stride=4,bias=False)
             self.conv = nn.Conv1d(1,1000,kernel_size=filter_size*4,stride=4,bias=False)
+            
+            print('creating grid')
+            nucleotides = ['A', 'C', 'G', 'T']
+            keywords = itertools.product(nucleotides, repeat=self.filter_size)
+            kmer_list = ["".join(x) for x in keywords]
+            div = find_best_div(self.input_size, self.filter_size, 0.5)
+            self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
         else:
             self.conv = nn.Conv2d(1,filters_limit,kernel_size=filter_size,bias=False)
             self.conv_single = nn.Conv2d(1,1,kernel_size=filter_size,bias=False)
 
-
-        print('creating grid')
-        nucleotides = ['A', 'C', 'G', 'T']
-        keywords = itertools.product(nucleotides, repeat=self.filter_size)
-        kmer_list = ["".join(x) for x in keywords]
-        div = find_best_div(self.input_size, self.filter_size, 0.5)
-        self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
     
     def _initialize_CE(self):
         if self.DNA:
             members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
         else:
-            members = np.array([np.random.random((self.filter_size, self.filter_size)) for i in range(self.optimization_sample_size[0])])
+            members = np.array([np.random.random(self.filter_size) for i in range(self.optimization_sample_size[0])])
 
         return members
 
@@ -265,7 +265,10 @@ class CEOptimizer():
 
         ### sample members (betas) ###
         if len(indices)==0:
-            return np.zeros(self.filter_size*4), ([],[])
+            if self.DNA:
+                return np.zeros(self.filter_size*4), ([],[])
+            else:
+                return np.zeros(self.filter_size), ([],[])
 
         for i in range(self.iterations):
             print('iteration:', i)
@@ -278,7 +281,10 @@ class CEOptimizer():
                     beta_history.append(mu)
                     members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[0])
             else:
-                members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[1])
+                if type(self.filter_size)==int:
+                    members = multivariate_normal.rvs(mean=mu.flatten(), cov=cov, size=self.optimization_sample_size[1])
+                else:
+                    members = multivariate_normal.rvs(mean=mu.flatten(), cov=cov, size=self.optimization_sample_size[1]).reshape((-1,)+self.filter_size)
 
             print('calculating scores...')
             
@@ -288,16 +294,19 @@ class CEOptimizer():
 
             #print(indices)
             print('indices shape', indices.shape)
-            indices_cuda = Variable(torch.LongTensor(indices))
+            indices_cuda = torch.LongTensor(indices)
             if torch.cuda.is_available():
                 indices_cuda = indices_cuda.cuda()
-            classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
+
+            if X_rc is not None:
+                classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
                                            X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=self.filters_limit)
+            else:
+                classifications = pytorch_conv2d(X.index_select(dim=0, index=indices_cuda),
+                                            members, self.conv, threshold=self.threshold, limit=self.filters_limit)
 
 
             member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-            #member_scores += self.regularization*np.abs(members).sum(axis=1)
-
             #print('getting best scores')
             best_scoring_indices = np.argsort(member_scores)[0:self.elite_num]
             if member_scores[best_scoring_indices[0]] < best_score:
@@ -317,6 +326,8 @@ class CEOptimizer():
 
             if i==0:
                 mu = new_mu
+                print(mu)
+                print(mu.shape)
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
             else:
                 mu = self.alpha*new_mu + (1-self.alpha)*mu
@@ -324,10 +335,16 @@ class CEOptimizer():
             
             beta_history.append(mu)
 
-        classifications = pytorch_convDNA_single(X.index_select(dim=0, index=indices_cuda), 
+        if X_rc is not None:
+            classifications = pytorch_convDNA_single(X.index_select(dim=0, index=indices_cuda), 
                 X_rc.index_select(dim=0, index=indices_cuda),
                 mu.reshape(1,1,self.filter_size*4),
                 self.conv_single)
+        else:
+            classifications = pytorch_conv2d_single(X.index_select(dim=0, index=indices_cuda),
+                                                mu.reshape((1,1)+self.filter_size),
+                                                self.conv_single,
+                                                threshold=self.threshold)
 
         #self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
         #if torch.cuda.is_available():
@@ -354,102 +371,6 @@ class CEOptimizer():
 
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
     
-
-        
-    def find_optimal_beta(self, X, indices, y, weights):
-
-        cov = self.cov_init
-        best_memory = None
-        best_score = np.inf
-        best_classifications = None
-
-        beta_history = []
-        loss_history = []
-
-        ### sample members (betas) ###
-        if len(indices)==0:
-            return np.zeros(self.motif_length*4), ([],[])
-
-        for i in range(self.iterations):
-            print('iteration:', i)
-            if i==0:
-                if self.smart_init:
-                    members = self._initialize_CE()
-                else:
-                    mu = self.grid[np.random.randint(len(self.grid))]
-                    beta_history.append(mu)
-                    members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[0])
-            else:
-                members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[1])
-
-            print('calculating scores...')
-            
-            ####################
-            ### PYTORCH PART ###
-            ####################
-
-            #### TESTING ####
-            #print(indices)
-            print('indices shape', indices.shape)
-            indices_cuda = Variable(torch.LongTensor(indices))
-            if torch.cuda.is_available():
-                indices_cuda = indices_cuda.cuda()
-            classifications = pytorch_conv2d(X.index_select(dim=0, index=indices_cuda), members, self.conv, threshold=self.threshold, limit=self.filters_limit)
-
-            member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-
-            #print('getting best scores')
-            best_scoring_indices = np.argsort(member_scores)[0:self.elite_num]
-            if member_scores[best_scoring_indices[0]] < best_score:
-                best_score = member_scores[best_scoring_indices[0]]
-                best_memory = members[best_scoring_indices[0]]
-                best_classifications = classifications[best_scoring_indices[0]]
-            else:
-                pass
-            loss_history.append(best_score)
-
-            
-            print('best score so far:', best_score)
-
-            ## Calculate the MLE ##
-            new_mu = np.mean(members[best_scoring_indices], axis=0)
-            new_cov = np.mean([np.outer(x,x) for x in (members[best_scoring_indices] - new_mu)], axis=0) ## maybe faster way
-
-            if i==0:
-                mu = new_mu
-                cov = self.alpha*new_cov + (1-self.alpha)*cov
-            else:
-                mu = self.alpha*new_mu + (1-self.alpha)*mu
-                cov = self.alpha*new_cov + (1-self.alpha)*cov
-            
-            beta_history.append(mu)
-
-        self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
-        self.conv_single = nn.Conv2d(1,1,kernel_size=kernel_shape,bias=False)
-        if torch.cuda.is_available():
-            self.conv_single = self.conv_single.cuda()
-        output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
-        output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
-        classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
-        print('RIGHT HERE', classifications.shape)
-
-        #if child_variance(y[indices], classifications)[0] > best_score:
-        #print(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-        #print(self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])))
-        if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
-            print("going with something else")
-            beta = best_memory
-            output_classifications = best_classifications
-        else:
-            print("we good")
-            beta = mu
-            output_classifications = classifications[0]
-
-        self.beta_history.append(beta_history)
-        self.loss_history.append(loss_history)
-
-        return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
-
 
 class SimulatedAnnealingOptimizer():
 

@@ -376,12 +376,12 @@ class ConvDTClassifierDNA(BaseEstimator):
 
 
 class ConvDTClassifier(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), optimizer=CDTOptim.GradientDescentOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000):
+    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), optimizer=CDTOptim.GradientDescentOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
         self.depth = depth
         self.DNA = DNA
-        #self.motif_length = motif_length
-        #self.sequence_length = sequence_length
         self.filter_size = filter_size
+        self.filter_limit = filter_limit
+        self.threshold = threshold
         self.input_size = input_size
         self.iterations = iterations
         self.alpha = alpha
@@ -391,12 +391,12 @@ class ConvDTClassifier(BaseEstimator):
         self.optimization_sample_size = optimization_sample_size
 
         if self.DNA:
-            self.conv = nn.Conv1d(1,filter_limit,kernel_size=filter_size*4,stride=4,bias=False)
-            self.conv_single = nn.Conv1d(1,1,kernel_size=filter_size*4,stride=4,bias=False)
+            #self.conv = nn.Conv1d(1,filter_limit,kernel_size=filter_size*4,stride=4,bias=False)
+            #self.conv_single = nn.Conv1d(1,1,kernel_size=filter_size*4,stride=4,bias=False)
             self.conv_betas = nn.Conv1d(1,1,kernel_size=filter_size*4,stride=4,bias=False)
         else:
-            self.conv = nn.Conv2d(1,filters_limit,kernel_size=filter_size,bias=False)
-            self.conv_single = nn.Conv2d(1,1,kernel_size=filter_size,bias=False)
+            #self.conv = nn.Conv2d(1,filter_limit,kernel_size=filter_size,bias=False)
+            #self.conv_single = nn.Conv2d(1,1,kernel_size=filter_size,bias=False)
             self.conv_betas = nn.Conv2d(1,1,kernel_size=filter_size,bias=False)
 
         self.optimizer=optimizer
@@ -412,12 +412,17 @@ class ConvDTClassifier(BaseEstimator):
         self.betas = []
         self.proportions = []
 
-        X_gpu = torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float()
-        Xrc_gpu = torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float()
-        if torch.cuda.is_available():
-            X_gpu = X_gpu.cuda()
-            Xrc_gpu = Xrc_gpu.cuda()
-
+        if self.DNA:
+            X_gpu = torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float()
+            Xrc_gpu = torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float()
+            if torch.cuda.is_available():
+                X_gpu = X_gpu.cuda()
+                Xrc_gpu = Xrc_gpu.cuda()
+        else:
+            X_gpu = torch.from_numpy(np.expand_dims(X,axis=1)).float()
+            if torch.cuda.is_available():
+                X_gpu = X_gpu.cuda()
+            Xrc_gpu = None
 
         for layer in range(self.depth):
             if layer == 0:
@@ -431,11 +436,9 @@ class ConvDTClassifier(BaseEstimator):
                     left = self.data[layer-1][i][0]
                     right = self.data[layer-1][i][1]
 
-                    #left_beta, left_children = self._find_optimal_beta(X_gpu, Xrc_gpu, left, y, sample_weight, full_grid)
                     left_beta, left_children = self.optimizer.find_optimal_beta(X_gpu, Xrc_gpu, left, y, sample_weight)
                     print("going left", len(left_children[0]), len(left_children[1]))
                     
-                    #right_beta, right_children = self._find_optimal_beta(X_gpu, Xrc_gpu, right, y, sample_weight, full_grid)
                     right_beta, right_children = self.optimizer.find_optimal_beta(X_gpu, Xrc_gpu, right, y, sample_weight)
                     print("going right", len(right_children[0]), len(right_children[1]))
 
@@ -457,9 +460,7 @@ class ConvDTClassifier(BaseEstimator):
             right_output = [np.average(y.take(right) == c,
                 weights=sample_weight.take(right), 
                 axis=0) if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
-            ### For making proportions remember how many samples instead of normalized
-            #left_output = [((y.take(left)==c)*(sample_weight.take(left))).sum() if len(y.take(left)==c)!=0 else 0 for c in self.classes_]
-            #right_output = [((y.take(right)==c)*(sample_weight.take(right))).sum() if len(y.take(right)==c)!=0 else 0 for c in self.classes_]
+
             self.proportions.extend([left_output, right_output])
 
         print(self.proportions)
@@ -482,20 +483,28 @@ class ConvDTClassifier(BaseEstimator):
         return self.decision_function(X)
 
     def decision_function(self, X):
-        X_pytorch = Variable(torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float())
-        Xrc_pytorch = Variable(torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float())
+        #X_pytorch = torch.from_numpy(X.reshape(X.shape[0], 1, X.shape[1])).float()
+        X_pytorch = torch.from_numpy(np.expand_dims(X,axis=1)).float()
+        if self.DNA:
+            #Xrc_pytorch = torch.from_numpy(np.array([x[::-1] for x in X]).reshape(X.shape[0], 1, X.shape[1])).float()
+            Xrc_pytorch = torch.from_numpy(np.expand_dims(np.array([x[::-1] for x in X]),axis=1)).float()
+        else:
+            Xrc_pytorch = None
         
         flattened_betas = np.array(list(itertools.chain(*self.betas)))
         self.conv_betas.out_channels = len(flattened_betas)
         
-        self.conv_betas.weight.data = torch.from_numpy(flattened_betas.reshape(len(flattened_betas),1,len(flattened_betas[0]))).float()
-        if torch.cuda.is_available():
-            self.conv_betas.cuda()
-            X_pytorch = X_pytorch.cuda()
-            Xrc_pytorch = Xrc_pytorch.cuda()
-        output1 = self.conv_betas(X_pytorch)
-        output2 = self.conv_betas(Xrc_pytorch)
-        betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+        if self.DNA:
+            self.conv_betas.weight.data = torch.from_numpy(flattened_betas.reshape(len(flattened_betas),1,len(flattened_betas[0]))).float()
+            if torch.cuda.is_available():
+                self.conv_betas.cuda()
+                X_pytorch = X_pytorch.cuda()
+                Xrc_pytorch = Xrc_pytorch.cuda()
+            output1 = self.conv_betas(X_pytorch)
+            output2 = self.conv_betas(Xrc_pytorch)
+            betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+        else:
+            betas_output = pytorch_conv_exact2d(X_pytorch, flattened_betas, self.conv_betas, threshold=self.threshold, limit=self.filter_limit)
         
         output = []
         offset = 2**(self.depth) - 1

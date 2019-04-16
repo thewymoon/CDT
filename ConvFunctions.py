@@ -267,20 +267,21 @@ def pytorch_conv_exact2d(X, B, conv, threshold=500, limit=50):
 
 
 
-def pytorch_convDNA_single(X, X_rc B, conv):
-    self.conv.weight.data = torch.from_numpy(B).float()
+def pytorch_convDNA_single(X, X_rc, B, conv):
+    conv.weight.data = torch.from_numpy(B).float()
     if torch.cuda.is_available():
-        self.conv = self.conv.cuda()
-    output_forward = self.conv(X.index_select(dim=0, index=indices_cuda))
-    output_rc = self.conv(X_rc.index_select(dim=0, index=indices_cuda))
+        conv = conv.cuda()
+    output_forward = conv(X)
+    output_rc =conv(X_rc)
     classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
     return classifications
 
 
-def pytorch_conv2d_single(X, B, conv, threshold, limit):
+def pytorch_conv2d_single(X, B, conv, threshold):
+    conv.weight.data = torch.from_numpy(B).float()
     if torch.cuda.is_available():
-        self.conv = self.conv.cuda()
-    output_forward = self.conv(X.index_select(dim=0, index=indices_cuda))
-    classifications = np.swapaxes((output_forward.max(dim=2)[0].max(dim=2)[0] >= self.threshold).cpu().data.numpy(),0,1)
+        conv = conv.cuda()
+    output_forward = conv(X)
+    classifications = np.swapaxes((output_forward.max(dim=2)[0].max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
     return classifications
 
