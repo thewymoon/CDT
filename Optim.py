@@ -100,136 +100,48 @@ class GradientDescentOptimizer():
 
 
 
-
-class SumGradientDescentOptimizer():
-
-    def __init__(self,motif_length,sequence_length,loss_function,iterations=0,step_size=1,alpha=1,classes=np.array([0,1]),init_sequence=None):
-        self.iterations = iterations
-        self.step_size = step_size
-        self.alpha = alpha
-        self.motif_length = motif_length
-        self.sequence_length = sequence_length
-        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
-        self.loss_function = loss_function
-        self.classes_ = classes
-        self.loss_history = []
-        self.beta_history = []
-        self.init_sequence = init_sequence
-
-    def _initialize_beta(self):
-        best_div = find_best_div(self.sequence_length, self.motif_length, 0.5)
-
-        if self.init_sequence:
-            initial_beta = motif_to_beta(self.init_sequence) / best_div
-        else:
-            nucleotides = [[1,0,0,0], [0,1,0,0], [0,0,1,0], [0,0,0,1]]
-            initial_beta = (np.array([nucleotides[np.random.randint(4)] for _ in range(self.motif_length)])/best_div).flatten()
-
-        print(initial_beta)
-        return initial_beta
-
-    def find_optimal_beta(self, X, X_rc, indices, y, weights):
-
-        beta_history = []
-        beta = self._initialize_beta()
-
-        if len(indices)==0:
-            return np.zeros(self.motif_length*4), ([], [])
-        
-        X_cpu = X.cpu().data.numpy()
-        X_rc_cpu = X_rc.cpu().data.numpy()
-        forward_subsequences = np.array([[x[4*i:4*i+len(weights)] for i in range((x.shape[1]//4) - (len(weights)//4) + 1)] for x in X_cpu])
-        reverse_subsequences = np.array([[x[4*i:4*i+len(weights)] for i in range((x.shape[1]//4) - (len(weights)//4) + 1)] for x in X_rc_cpu])
-
-        print(forward_subsequences.shape)
-        
-        for i in range(self.iterations):
-            #print(f'beta: {beta}')
-            indices_cuda = Variable(torch.LongTensor(indices))
-            if torch.cuda.is_available():
-                indices_cuda = indices_cuda.cuda()
-                
-            self.conv_single.weight.data = torch.from_numpy(beta.reshape(1,1,-1)).float()
-            if torch.cuda.is_available():
-                self.conv_single = self.conv_single.cuda()
-            output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
-            output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
-            classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1).cpu().data.numpy(),0,1)
-
-            #max_vals, max_sequences = convDNA_single_maxinfo(X.index_select(dim=0, index=indices_cuda), X_rc.index_select(dim=0, index=indices_cuda), beta)
-
-            forward, reverse = convDNA_single(X.index_select(dim=0, index=indices_cuda), X_rc.index_select(dim=0, index=indices_cuda), beta)
-            forward_expit = expit(self.alpha*(forward-1))
-            reverse_expit = expit(self.alpha*(reverse-1))
-
-            #max_vals_expit = expit(self.alpha*(max_vals-1))
-
-            #print('LEFT AND RIGHT: ', len(np.where(max_vals > 1)[0]), len(np.where(max_vals <= 1)[0]))
-
-            P = ((y[indices]==1) * weights[indices]).sum()
-            N = ((y[indices]==0) * weights[indices]).sum()
-
-            p = (forward_expit * (y[indices]==1) * weights[indices]).sum() + (reverse_expit * (y[indices]==1) * weights[indices]).sum()
-            n = (forward_expit * (y[indices]==0) * weights[indices]).sum() + (reverse_expit * (y[indices]==0) * weights[indices]).sum()
-
-            
-
-            #p = (max_vals_expit * (y[indices]==1) * weights[indices]).sum()
-            #n = (max_vals_expit * (y[indices]==0) * weights[indices]).sum()
-
-            p_true = ((classifications==1)[0] * (y[indices]==1) * weights[indices]).sum()
-            n_true = ((classifications==1)[0] * (y[indices]==0) * weights[indices]).sum()
-
-            p_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==1) * weights[indices])).T.sum(axis=0)
-            n_prime = self.alpha*(max_sequences.T * (((max_vals_expit)*(1-max_vals_expit)) * (y[indices].values==0) * weights[indices])).T.sum(axis=0)
-
-            if i%100==0:
-                print(f'iteration: {i}')
-                loss = self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0])
-                self.loss_history.append(loss)
-                beta_history.append(beta)
-                print('loss function: ', loss)
-                print(f'Information Gain {IG(P,N,p,n)}')
-                print(f'Real Information Gain {IG(P,N,p_true,n_true)}')
-                #print(beta)
-
-
-            gradient = (1/(P+N))*(-(p_prime + n_prime)*np.log((p+n)/(P+N-p-n)) + p_prime*np.log(p/(P-p)) + n_prime*np.log(n/(N-n)))
-            beta = beta + self.step_size*gradient
-        
-        beta_history.append(beta)
-        self.beta_history.append(beta_history)
-
-        max_vals, max_sequences = convDNA_single_maxinfo(X.index_select(dim=0, index=indices_cuda), X_rc.index_select(dim=0, index=indices_cuda), beta.reshape(1,-1))
-
-        return beta, (indices[np.where(max_vals > 1)[0]], indices[np.where(max_vals <= 1)[0]])
-
-
-
 class CEOptimizer():
     
-    def __init__(self, loss_function, motif_length, sequence_length, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True):
+    def __init__(self, loss_function, filter_size, input_size, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=500, filters_limit=512):
         self.iterations = iterations
         self.cov_init = cov_init
         self.optimization_sample_size = optimization_sample_size
         self.elite_num = elite_num
         self.loss_function = loss_function
-        self.conv_single = nn.Conv1d(1,1,kernel_size=motif_length*4,stride=4,bias=False)
-        self.conv = nn.Conv1d(1,1000,kernel_size=motif_length*4,stride=4,bias=False)
-        self.motif_length = motif_length
-        self.sequence_length = sequence_length
+        self.filter_size = filter_size
+        self.input_size = input_size
         self.classes_ = classes
         self.alpha = alpha
         self.loss_history = []
         self.beta_history = []
         self.smart_init = smart_init
+        self.DNA = DNA
+        self.threshold = threshold
+        self.filters_limit = filters_limit
 
-        print('creating grid')
-        nucleotides = ['A', 'C', 'G', 'T']
-        keywords = itertools.product(nucleotides, repeat=self.motif_length)
-        kmer_list = ["".join(x) for x in keywords]
-        div = find_best_div(self.sequence_length, self.motif_length, 0.5)
-        self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
+        if self.DNA:
+            self.conv_single = nn.Conv1d(1,1,kernel_size=filter_size*4,stride=4,bias=False)
+            self.conv = nn.Conv1d(1,1000,kernel_size=filter_size*4,stride=4,bias=False)
+            
+            print('creating grid')
+            nucleotides = ['A', 'C', 'G', 'T']
+            keywords = itertools.product(nucleotides, repeat=self.filter_size)
+            kmer_list = ["".join(x) for x in keywords]
+            div = find_best_div(self.input_size, self.filter_size, 0.5)
+            self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
+        else:
+            self.conv = nn.Conv2d(1,filters_limit,kernel_size=filter_size,bias=False)
+            self.conv_single = nn.Conv2d(1,1,kernel_size=filter_size,bias=False)
+
+    
+    def _initialize_CE(self):
+        if self.DNA:
+            members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+        else:
+            members = np.array([np.random.random(self.filter_size) for i in range(self.optimization_sample_size[0])])
+
+        return members
+
 
     def find_optimal_beta(self, X, X_rc, indices, y, weights):
 
@@ -243,19 +155,26 @@ class CEOptimizer():
 
         ### sample members (betas) ###
         if len(indices)==0:
-            return np.zeros(self.motif_length*4), ([],[])
+            if self.DNA:
+                return np.zeros(self.filter_size*4), ([],[])
+            else:
+                return np.zeros(self.filter_size), ([],[])
 
         for i in range(self.iterations):
             print('iteration:', i)
             if i==0:
                 if self.smart_init:
-                    members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+                    #members = self.grid[np.random.choice(range(len(self.grid)), size=self.optimization_sample_size[0], replace=False)]
+                    members = self._initialize_CE()
                 else:
                     mu = self.grid[np.random.randint(len(self.grid))]
                     beta_history.append(mu)
                     members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[0])
             else:
-                members = multivariate_normal.rvs(mean=mu, cov=cov, size=self.optimization_sample_size[1])
+                if type(self.filter_size)==int:
+                    members = multivariate_normal.rvs(mean=mu.flatten(), cov=cov, size=self.optimization_sample_size[1])
+                else:
+                    members = multivariate_normal.rvs(mean=mu.flatten(), cov=cov, size=self.optimization_sample_size[1]).reshape((-1,)+self.filter_size)
 
             print('calculating scores...')
             
@@ -263,17 +182,22 @@ class CEOptimizer():
             ### PYTORCH PART ###
             ####################
 
-            #### TESTING ####
             #print(indices)
             print('indices shape', indices.shape)
-            indices_cuda = Variable(torch.LongTensor(indices))
+            indices_cuda = torch.LongTensor(indices)
             if torch.cuda.is_available():
                 indices_cuda = indices_cuda.cuda()
-            classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
-                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=1000)
 
-            member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-            #member_scores += self.regularization*np.abs(members).sum(axis=1)
+            if X_rc is not None:
+                classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
+                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=self.filters_limit)
+            else:
+                classifications = pytorch_conv2d(X.index_select(dim=0, index=indices_cuda),
+                                            members, self.conv, threshold=self.threshold, limit=self.filters_limit)
+
+
+            #member_scores = np.apply_along_axis(self.loss_function,1,better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
+            member_scores = np.apply_along_axis(self.loss_function,1,classifications,y[indices],weights[indices])
 
             #print('getting best scores')
             best_scoring_indices = np.argsort(member_scores)[0:self.elite_num]
@@ -294,6 +218,8 @@ class CEOptimizer():
 
             if i==0:
                 mu = new_mu
+                print(mu)
+                print(mu.shape)
                 cov = self.alpha*new_cov + (1-self.alpha)*cov
             else:
                 mu = self.alpha*new_mu + (1-self.alpha)*mu
@@ -301,18 +227,20 @@ class CEOptimizer():
             
             beta_history.append(mu)
 
-        self.conv_single.weight.data = torch.from_numpy(mu.reshape(1,1,self.motif_length*4)).float()
-        if torch.cuda.is_available():
-            self.conv_single = self.conv_single.cuda()
-        output_forward = self.conv_single(X.index_select(dim=0, index=indices_cuda))
-        output_rc = self.conv_single(X_rc.index_select(dim=0, index=indices_cuda))
-        classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+        if X_rc is not None:
+            classifications = pytorch_convDNA_single(X.index_select(dim=0, index=indices_cuda), 
+                X_rc.index_select(dim=0, index=indices_cuda),
+                mu.reshape(1,1,self.filter_size*4),
+                self.conv_single)
+        else:
+            classifications = pytorch_conv2d_single(X.index_select(dim=0, index=indices_cuda),
+                                                mu.reshape((1,1)+self.filter_size),
+                                                self.conv_single,
+                                                threshold=self.threshold)
+
         print('RIGHT HERE', classifications.shape)
 
-        #if child_variance(y[indices], classifications)[0] > best_score:
-        #print(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices]))
-        #print(self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])))
-        if self.loss_function(better_return_counts_weighted(y[indices], classifications, self.classes_, weights[indices])[0]) > best_score:
+        if self.loss_function(classifications[0], y[indices], weights[indices]) > best_score:
             print("going with something else")
             beta = best_memory
             output_classifications = best_classifications
@@ -325,7 +253,7 @@ class CEOptimizer():
         self.loss_history.append(loss_history)
 
         return beta, (indices[np.where(output_classifications==1)[0]], indices[np.where(output_classifications==0)[0]])
-
+    
 
 class SimulatedAnnealingOptimizer():
 

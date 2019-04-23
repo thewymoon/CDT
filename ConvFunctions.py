@@ -13,32 +13,43 @@ from torch.autograd import Variable
 ### FUNCTION DEFINITIONS ####
 
 # Loss Function
-def my_entropy(p_vec, pseudo=0.00000001):
-    if np.sum(p_vec) > 0:
-        return np.sum([-(p)*np.log((p)) for p in [(x/np.sum(p_vec))+pseudo for x in p_vec]])
-    else:
-        return 0
-
-def two_class_weighted_entropy(counts, pseudo=.01):
-    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
-
-def two_class_weighted_entropy_regularized(counts, weights, regularization=0, pseudo=0.01):
-    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts) + regularization*np.abs(weights).sum()
-
-
-def modified_entropy(p_vec, pseudo=0.001):
-    summed = np.sum(p_vec)
-    if summed > 0:
-        return entropy(p_vec/summed + pseudo)
-    else:
-        return 0
-
-def multi_class_weighted_entropy(counts, pseudo=0.001):
-    L = int(len(counts)/2)
-    first_half = np.array(counts[:L])
-    second_half = np.array(counts[L:])
-
-    return (modified_entropy(first_half,pseudo)*first_half.sum()+ modified_entropy(second_half,pseudo)*second_half.sum())/np.sum(counts)
+#def my_entropy(p_vec, pseudo=0.01):
+#    if np.sum(p_vec) > 0:
+#        return np.sum([-(p)*np.log((p)) for p in [(x/np.sum(p_vec))+pseudo for x in p_vec]])
+#    else:
+#        return 0
+#
+#def two_class_weighted_entropy(counts, pseudo=.01):
+#    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
+#
+#def two_class_weighted_entropy_mod(classifications,y,weights,pseudo=0.01, classes=[0,1]):
+#    counts = []
+#    
+#    class_indices = []
+#    for class_value in classes:
+#        class_indices.append(np.where(y==class_value)[0])
+#
+#    for i in range(2):
+#        counts.extend([np.sum(weights[np.where(classifications[indices]==i)[0]]) for indices in class_indices])
+#
+#    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
+#    
+#
+#
+#
+#def modified_entropy(p_vec, pseudo=0.001):
+#    summed = np.sum(p_vec)
+#    if summed > 0:
+#        return entropy(p_vec/summed + pseudo)
+#    else:
+#        return 0
+#
+#def multi_class_weighted_entropy(counts, pseudo=0.001):
+#    L = int(len(counts)/2)
+#    first_half = np.array(counts[:L])
+#    second_half = np.array(counts[L:])
+#
+#    return (modified_entropy(first_half,pseudo)*first_half.sum()+ modified_entropy(second_half,pseudo)*second_half.sum())/np.sum(counts)
 
 def flip_beta(beta):
     flipped_beta = np.zeros(len(beta))
@@ -54,23 +65,23 @@ def faster_dot(X_matrices, beta):
 
 # CLASSIFY SEQUENCES
 
-def classify_sequences(X_matrices, X_matrices_rc, beta):
-    return np.logical_or(np.any(faster_dot(X_matrices, beta) >= 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) >= 1.0, axis=1)).astype(int)
-
-def weighted_classify_sequences(X_matrices, X_matrices_rc, beta, weights):
-    return np.logical_or(np.any(faster_dot(X_matrices, beta) >= 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) >= 1.0, axis=1)).astype(int)
-    
-
-def classify_sequence(x, beta, motif_length):
-    flipped_beta = beta[::-1]
-
-    scan_length = int((len(x) - len(beta))/4 + 1)
-    #print('scan length', scan_length, len(x), len(beta))
-
-    out1 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], beta) for i in range(scan_length)])
-    out2 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], flipped_beta) for i in range(scan_length)])
-
-    return int(np.any((out1>1.0) + (out2>1.0)))
+#def classify_sequences(X_matrices, X_matrices_rc, beta):
+#    return np.logical_or(np.any(faster_dot(X_matrices, beta) >= 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) >= 1.0, axis=1)).astype(int)
+#
+#def weighted_classify_sequences(X_matrices, X_matrices_rc, beta, weights):
+#    return np.logical_or(np.any(faster_dot(X_matrices, beta) >= 1.0, axis=1), np.any(faster_dot(X_matrices_rc, beta) >= 1.0, axis=1)).astype(int)
+#    
+#
+#def classify_sequence(x, beta, motif_length):
+#    flipped_beta = beta[::-1]
+#
+#    scan_length = int((len(x) - len(beta))/4 + 1)
+#    #print('scan length', scan_length, len(x), len(beta))
+#
+#    out1 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], beta) for i in range(scan_length)])
+#    out2 = np.array([np.dot(x[(4*i):(4*i)+len(beta)], flipped_beta) for i in range(scan_length)])
+#
+#    return int(np.any((out1>1.0) + (out2>1.0)))
 
 
 def better_return_counts_weighted(labels, classifications, classes, weights):
@@ -125,19 +136,26 @@ def motif_to_beta(motif):
 
     return np.array([convertdict[x] for x in motif]).flatten()
 
-## ASSUMES two class ##
-def child_variance(y_values, classifications):
-    output = []
-    classes = np.unique(classifications)
-    for i in range(len(classifications)):
-        total = 0
-        for unique in classes:
-            temp_indices = np.where(classifications[i]==unique)[0]
-            total += len(temp_indices)*np.var(y_values[temp_indices])
-        output.append(total)
-    return np.array(output)
-
-
+### ASSUMES two class ##
+#def child_variance(y_values, classifications):
+#    output = []
+#    classes = np.unique(classifications)
+#    for i in range(len(classifications)):
+#        total = 0
+#        for unique in classes:
+#            temp_indices = np.where(classifications[i]==unique)[0]
+#            total += len(temp_indices)*np.var(y_values[temp_indices])
+#        output.append(total)
+#    return np.array(output)
+#
+#
+#def child_variance_single(classifications,y_values,weights):
+#    classes = np.unique(classifications)
+#    total = 0
+#    for unique in classes:
+#        temp_indices = np.where(classifications==unique)[0]
+#        total += len(temp_indices)*np.var(y_values[temp_indices])
+#    return total
 
 #def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
 #    X_size = X.size(0)
@@ -264,3 +282,24 @@ def pytorch_conv_exact2d(X, B, conv, threshold=500, limit=50):
     result = np.append(result, output, axis=0)
 
     return result
+
+
+
+def pytorch_convDNA_single(X, X_rc, B, conv):
+    conv.weight.data = torch.from_numpy(B).float()
+    if torch.cuda.is_available():
+        conv = conv.cuda()
+    output_forward = conv(X)
+    output_rc =conv(X_rc)
+    classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+    return classifications
+
+
+def pytorch_conv2d_single(X, B, conv, threshold):
+    conv.weight.data = torch.from_numpy(B).float()
+    if torch.cuda.is_available():
+        conv = conv.cuda()
+    output_forward = conv(X)
+    classifications = np.swapaxes((output_forward.max(dim=2)[0].max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
+    return classifications
+
