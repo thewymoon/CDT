@@ -1,5 +1,5 @@
 import numpy as np
-from ConvDT_gpu import *
+from CDT import *
 import copy
 
 ###########################################
@@ -8,13 +8,13 @@ import copy
 
 import sklearn.ensemble.gradient_boosting as GB
 
-class GradientBoostedConvDT():
+class GradientBoostedCDT():
 
-    def __init__(self, base_ConvDT, num_estimators, learning_rate):
+    def __init__(self, base_CDT, num_estimators, learning_rate):
         self.num_estimators = num_estimators
         self.learning_rate = learning_rate
         self.loss_ = GB.BinomialDeviance(2)
-        self.base_ConvDT = base_ConvDT
+        self.base_CDT = base_CDT
 
     def fit(self, X, y):
         self.estimators_ = []
@@ -27,13 +27,13 @@ class GradientBoostedConvDT():
         ## Start it off by getting the first residuals ##
         residuals = self.loss_.negative_gradient(y, y_pred)
         
-        ## Train the ConvDTs ##
+        ## Train the CDTs ##
         for i in range(self.num_estimators):
-            ## create the ConvDT and fit to residuals##
-            estimator = copy.deepcopy(self.base_ConvDT)
+            ## create the CDT and fit to residuals##
+            estimator = copy.deepcopy(self.base_CDT)
             estimator.fit(X,residuals)
 
-            ## Add the ConvDT to list of esimators ##
+            ## Add the CDT to list of esimators ##
             self.estimators_.append(estimator)
 
             ## update the prediction ##
