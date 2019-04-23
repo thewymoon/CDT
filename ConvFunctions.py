@@ -22,8 +22,19 @@ def my_entropy(p_vec, pseudo=0.00000001):
 def two_class_weighted_entropy(counts, pseudo=.01):
     return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
 
-def two_class_weighted_entropy_regularized(counts, weights, regularization=0, pseudo=0.01):
-    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts) + regularization*np.abs(weights).sum()
+def two_class_weighted_entropy_mod(classifications,y,weights,pseudo=0.01, classes=[0,1]):
+    counts = []
+    
+    class_indices = []
+    for class_value in classes:
+        class_indices.append(np.where(y==class_value)[0])
+
+    for i in range(2):
+        counts.extend([np.sum(weights[np.where(classifications[indices]==i)[0]]) for indices in class_indices])
+
+    return (my_entropy([counts[0], counts[1]], pseudo=pseudo)*np.sum(counts[0:2]) + my_entropy([counts[2], counts[3]], pseudo=pseudo)*np.sum(counts[2:4]))/np.sum(counts)
+    
+
 
 
 def modified_entropy(p_vec, pseudo=0.001):
@@ -138,6 +149,13 @@ def child_variance(y_values, classifications):
     return np.array(output)
 
 
+def child_variance_single(classifications,y_values,weights):
+    classes = np.unique(classifications)
+    total = 0
+    for unique in classes:
+        temp_indices = np.where(classifications==unique)[0]
+        total += len(temp_indices)*np.var(y_values[temp_indices])
+    return total
 
 #def pytorch_conv(X, X_rc, B, conv, single=False, limit=2000):
 #    X_size = X.size(0)
