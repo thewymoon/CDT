@@ -102,7 +102,7 @@ class GradientDescentOptimizer():
 
 class CEOptimizer():
     
-    def __init__(self, loss_function, filter_size, input_size, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=500, filters_limit=512):
+    def __init__(self, loss_function, filter_size, input_size=None, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=500, filters_limit=512):
         self.iterations = iterations
         self.cov_init = cov_init
         self.optimization_sample_size = optimization_sample_size

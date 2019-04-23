@@ -25,7 +25,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 #########################
 
 class CDTClassifier(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
@@ -182,7 +182,7 @@ class CDTClassifier(BaseEstimator):
 ################
 
 class CDTRegressor(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
