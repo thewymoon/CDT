@@ -12,6 +12,7 @@ from sklearn.metrics import classification_report, roc_auc_score, roc_curve, auc
 
 from ConvFunctions import *
 import Optim as CDTOptim
+import Loss as CDTLoss
 
 import torch
 import torch.nn as nn
@@ -24,7 +25,7 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 #########################
 
 class CDTClassifier(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
@@ -33,7 +34,7 @@ class CDTClassifier(BaseEstimator):
         self.input_size = input_size
         self.iterations = iterations
         self.alpha = alpha
-        self.loss_function = loss_function
+        #self.loss_function = loss_function
         self.loss_history = []
         self.data = []
         self.optimization_sample_size = optimization_sample_size
@@ -181,7 +182,7 @@ class CDTClassifier(BaseEstimator):
 ################
 
 class CDTRegressor(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, loss_function=two_class_weighted_entropy, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
@@ -190,7 +191,7 @@ class CDTRegressor(BaseEstimator):
         self.input_size = input_size
         self.iterations = iterations
         self.alpha = alpha
-        self.loss_function = loss_function
+        #self.loss_function = loss_function
         self.loss_history = []
         self.data = []
         self.optimization_sample_size = optimization_sample_size
