@@ -102,7 +102,7 @@ class GradientDescentOptimizer():
 
 class CEOptimizer():
     
-    def __init__(self, loss_function, filter_size, input_size=None, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=500, filters_limit=512):
+    def __init__(self, loss_function, filter_size, input_size=None, iterations=10, optimization_sample_size=(1000,1000), elite_num=20, cov_init=0.4, classes=np.array([0,1]), alpha=0.8, smart_init=True, DNA=False, threshold=1, filters_limit=512):
         self.iterations = iterations
         self.cov_init = cov_init
         self.optimization_sample_size = optimization_sample_size
@@ -127,7 +127,7 @@ class CEOptimizer():
             nucleotides = ['A', 'C', 'G', 'T']
             keywords = itertools.product(nucleotides, repeat=self.filter_size)
             kmer_list = ["".join(x) for x in keywords]
-            div = find_best_div(self.input_size, self.filter_size, 0.5)
+            div = find_best_div(self.input_size, self.filter_size, 0.5) / self.threshold
             self.grid = np.array([motif_to_beta(x) for x in kmer_list]) / div
         else:
             self.conv = nn.Conv2d(1,filters_limit,kernel_size=filter_size,bias=False)
@@ -190,7 +190,7 @@ class CEOptimizer():
 
             if X_rc is not None:
                 classifications = pytorch_convDNA(X.index_select(dim=0, index=indices_cuda), 
-                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, limit=self.filters_limit)
+                                           X_rc.index_select(dim=0, index=indices_cuda), members, self.conv, threshold=self.threshold, limit=self.filters_limit)
             else:
                 classifications = pytorch_conv2d(X.index_select(dim=0, index=indices_cuda),
                                             members, self.conv, threshold=self.threshold, limit=self.filters_limit)
@@ -231,7 +231,7 @@ class CEOptimizer():
             classifications = pytorch_convDNA_single(X.index_select(dim=0, index=indices_cuda), 
                 X_rc.index_select(dim=0, index=indices_cuda),
                 mu.reshape(1,1,self.filter_size*4),
-                self.conv_single)
+                self.conv_single, threshold= self.threshold)
         else:
             classifications = pytorch_conv2d_single(X.index_select(dim=0, index=indices_cuda),
                                                 mu.reshape((1,1)+self.filter_size),

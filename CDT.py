@@ -21,16 +21,14 @@ from sklearn.base import BaseEstimator, ClassifierMixin
 #########################
 
 class CDTClassifier(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=512):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
         self.filter_limit = filter_limit
-        self.threshold = threshold
         self.input_size = input_size
         self.iterations = iterations
         self.alpha = alpha
-        #self.loss_function = loss_function
         self.loss_history = []
         self.data = []
         self.optimization_sample_size = optimization_sample_size
@@ -141,9 +139,9 @@ class CDTClassifier(BaseEstimator):
                 Xrc_pytorch = Xrc_pytorch.cuda()
             output1 = self.conv_betas(X_pytorch)
             output2 = self.conv_betas(Xrc_pytorch)
-            betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+            betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] >= self.optimizer.threshold).cpu().data.numpy(),0,1)
         else:
-            betas_output = pytorch_conv_exact2d(X_pytorch, flattened_betas, self.conv_betas, threshold=self.threshold, limit=self.filter_limit)
+            betas_output = pytorch_conv_exact2d(X_pytorch, flattened_betas, self.conv_betas, threshold=self.optimizer.threshold, limit=self.filter_limit)
         
         output = []
         offset = 2**(self.depth) - 1
@@ -178,16 +176,14 @@ class CDTClassifier(BaseEstimator):
 ################
 
 class CDTRegressor(BaseEstimator):
-    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000, threshold=500):
+    def __init__(self, depth, filter_size, input_size=None, iterations=10, alpha=0.80, optimization_sample_size=(2000,2000), optimizer=CDTOptim.CEOptimizer(5000,.01,25,32), DNA=False, filter_limit=1000):
         self.depth = depth
         self.DNA = DNA
         self.filter_size = filter_size
         self.filter_limit = filter_limit
-        self.threshold = threshold
         self.input_size = input_size
         self.iterations = iterations
         self.alpha = alpha
-        #self.loss_function = loss_function
         self.loss_history = []
         self.data = []
         self.optimization_sample_size = optimization_sample_size
@@ -295,9 +291,9 @@ class CDTRegressor(BaseEstimator):
                 Xrc_pytorch = Xrc_pytorch.cuda()
             output1 = self.conv_betas(X_pytorch)
             output2 = self.conv_betas(Xrc_pytorch)
-            betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+            betas_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] >= self.optimizer.threshold).cpu().data.numpy(),0,1)
         else:
-            betas_output = pytorch_conv_exact2d(X_pytorch, flattened_betas, self.conv_betas, threshold=self.threshold, limit=self.filter_limit)
+            betas_output = pytorch_conv_exact2d(X_pytorch, flattened_betas, self.conv_betas, threshold=self.optimizer.threshold, limit=self.filter_limit)
         
         output = []
         offset = 2**(self.depth) - 1
@@ -315,70 +311,5 @@ class CDTRegressor(BaseEstimator):
         
     def predict(self, X):
         return self.predict_proba(X)
-
-
-################################################################################################################
-#
-#
-#def print_with_features(L, Features, ordered=False):
-#    if ordered==False:
-#        for i in range(len(features)):
-#            print(L[i], Features[i])
-#    else:
-#        print_with_features([L[x] for x in np.argsort(L)[::-1]],
-#                [Features[x] for x in np.argsort(L)[::-1]])
-#
-#def update_importances(importances, tree, weights, alpha):
-#    if len(importances) != len(weights):
-#        raise ValueError
-#    else:
-#        for i in range(len(importances)):
-#            importances[i] += tree.feature_importances_ * weights[i] * alpha
-#
-#def normalize(x):
-#    return x/np.sum(x)
-#
-#def predict_proba_importances(X, BDTLIST):
-#    output = []
-#    for b in BDTLIST:
-#        output.append(b.predict(X.reshape(1,-1))[0])
-#
-#    return output
-#
-#
-#def plot_roc(true_y, proba_y):
-#    plt.figure(figsize=(8,5))
-#    false_pos, true_pos, _ = roc_curve(true_y, proba_y)
-#    roc_auc = auc(false_pos, true_pos)
-#
-#    plt.plot(false_pos, true_pos)
-#    plt.text(.6,.1,"AUC: " + str("%.4f" % roc_auc), fontsize=20)
-#    plt.xlabel("false positive rate")
-#    plt.ylabel("true positive rate")
-#
-#
-#def plot_motif(motif, size=(8,5)):
-#    motif_length = int(len(motif)/4)
-#    optimal_beta = np.array([motif[4*i:4*i+4] for i in range(motif_length)])
-#
-#
-#    plt.figure(figsize=size)
-#    width = 0.2
-#    plt.bar(left = np.arange(motif_length), height=optimal_beta[:,0], width=width, color='r', label="A")
-#    plt.bar(left = np.arange(motif_length)+width, height=optimal_beta[:,1], width=width, color='b', label='C')
-#    plt.bar(left = np.arange(motif_length)+width*2, height=optimal_beta[:,2], width=width, color='m', label='G')
-#    plt.bar(left = np.arange(motif_length)+width*3, height=optimal_beta[:,3], width=width, color='g', label='T')
-#    plt.xlabel("Position")
-#
-#    plt.legend(bbox_to_anchor=(1.1, 1.05))
-
-
-
-
-
-
-
-
-
 
 

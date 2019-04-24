@@ -127,7 +127,7 @@ def threshold_DNA(X, X_rc, B, conv):
     return 0
     
 
-def pytorch_convDNA(X, X_rc, B, conv, single=False, limit=2000):
+def pytorch_convDNA(X, X_rc, B, conv, threshold, single=False, limit=2000):
     X_size = X.size(0)
     result = np.empty((0,X_size), dtype=np.float64)
     for i in range(int(len(B)/limit)):
@@ -137,7 +137,7 @@ def pytorch_convDNA(X, X_rc, B, conv, single=False, limit=2000):
             
         output1 = conv(X)
         output2 = conv(X_rc)
-        max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] > 1.0).cpu().data.numpy(),0,1)
+        max_output = np.swapaxes((torch.max(output1, output2).max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
         result = np.append(result, max_output, axis=0)
     return result
 
@@ -163,7 +163,7 @@ def pytorch_conv2d(X, B, conv, threshold=3000, limit=100):
     for i in range(int(len(B)/limit)):
         conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,B.shape[1],B.shape[2])).float()
         conv = conv.cuda()
-        output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] > threshold).cpu().data.numpy(),0,1)
+        output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
         result = np.append(result, output, axis=0)
     return result
 
@@ -175,27 +175,27 @@ def pytorch_conv_exact2d(X, B, conv, threshold=500, limit=50):
     for i in range(int(len(B)/limit)):
         conv.weight.data = torch.from_numpy(B[i*limit:(i+1)*limit].reshape(limit,1,B.shape[1],B.shape[2])).float()
         conv = conv.cuda()
-        output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] > threshold).cpu().data.numpy(),0,1)
+        output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
         result = np.append(result, output, axis=0)
 
     leftover = len(B) % limit
     conv.out_channels = leftover
     conv.weight.data = torch.from_numpy(B[(-1)*leftover:].reshape(leftover,1,B.shape[1],B.shape[2])).float()
     conv = conv.cuda()
-    output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] > threshold).cpu().data.numpy(),0,1)
+    output = np.swapaxes((conv(X).max(dim=2)[0].max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
     result = np.append(result, output, axis=0)
 
     return result
 
 
 
-def pytorch_convDNA_single(X, X_rc, B, conv):
+def pytorch_convDNA_single(X, X_rc, B, conv, threshold):
     conv.weight.data = torch.from_numpy(B).float()
     if torch.cuda.is_available():
         conv = conv.cuda()
     output_forward = conv(X)
     output_rc =conv(X_rc)
-    classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= 1.0).cpu().data.numpy(),0,1)
+    classifications = np.swapaxes((torch.max(output_forward, output_rc).max(dim=2)[0] >= threshold).cpu().data.numpy(),0,1)
     return classifications
 
 
