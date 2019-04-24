@@ -19,13 +19,10 @@ DNA=False
 filter_dimensions = (8,8)
 cdt_max_depth = 3
 
-
 optimizer = cdtopt.CEOptimizer(cdtloss.child_entropy, filter_dimensions, DNA=DNA)
-DT = cdt.CDTClassifier(cdt_max_depth, filter_dimensions, DNA=DNA, optimizer=optimizer)
-
-DT.fit(X, y)
-
-DT.predict(X)
+dt = cdt.CDTClassifier(cdt_max_depth, filter_dimensions, DNA=DNA, optimizer=optimizer)
+dt.fit(X, y)
+dt.predict(X)
 ```
 
 
@@ -37,9 +34,43 @@ filter_length = 8
 cdt_max_depth = 2
 
 optimizer = cdtopt.CEOptimizer(cdtloss.child_variance, filter_length, input_sequence_length, DNA=DNA)
-DT = cdt.CDTRegressor(cdt_max_depth, filter_length, input_sequence_length, DNA=DNA, optimizer=optimizer)
-
-DT.fit(X, y)
-
-DT.predict(X)
+dt = cdt.CDTRegressor(cdt_max_depth, filter_length, input_sequence_length, DNA=DNA, optimizer=optimizer)
+dt.fit(X, y)
+dt.predict(X)
 ```
+
+
+#### AdaBoosted CDT
+```python
+from sklearn.ensemble import AdaBoostClassifier
+
+DNA=False
+filter_dimensions = (8,8)
+cdt_max_depth = 3
+
+optimizer = cdtopt.CEOptimizer(cdtloss.child_entropy, filter_dimensions, DNA=DNA)
+dt = cdt.CDTClassifier(cdt_max_depth, filter_dimensions, DNA=DNA, optimizer=optimizer)
+
+bdt = AdaBoostClassifier(dt, n_estimators=20)
+bdt.fit(X, y)
+bdt.predict(X)
+```
+
+#### Gradient Boosted CDT for DNA sequences
+```python
+from GradientBoostedCDT import GradientBoostedCDT
+
+DNA = True
+input_sequence_length = 200
+filter_length = 8
+cdt_max_depth = 2
+num_estimators = 30
+
+optimizer = cdtopt.CEOptimizer(cdtloss.child_variance, filter_length, input_sequence_length, DNA=DNA)
+dt = cdt.CDTRegressor(cdt_max_depth, filter_length, input_sequence_length, DNA=DNA, optimizer=optimizer)
+bdt = GradientBoostedCDT(dt, num_estimators)
+
+bdt.fit(X,y)
+bdt.decision_function(X)
+```
+

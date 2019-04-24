@@ -1,12 +1,9 @@
 import pandas as pd
 import numpy as np
-import copy 
 import itertools
 from scipy.stats import multivariate_normal, entropy
 import scipy
 from scipy.special import expit
-from multiprocessing import Pool
-from functools import partial
 import matplotlib.pyplot as plt
 from sklearn.metrics import classification_report, roc_auc_score, roc_curve, auc
 
@@ -16,7 +13,6 @@ import Loss as CDTLoss
 
 import torch
 import torch.nn as nn
-from torch.autograd import Variable
 from sklearn.base import BaseEstimator, ClassifierMixin
 
 
@@ -322,61 +318,59 @@ class CDTRegressor(BaseEstimator):
 
 
 ################################################################################################################
-
-
-def print_with_features(L, Features, ordered=False):
-    if ordered==False:
-        for i in range(len(features)):
-            print(L[i], Features[i])
-    else:
-        print_with_features([L[x] for x in np.argsort(L)[::-1]],
-                [Features[x] for x in np.argsort(L)[::-1]])
-
-def update_importances(importances, tree, weights, alpha):
-    if len(importances) != len(weights):
-        raise ValueError
-    else:
-        for i in range(len(importances)):
-            importances[i] += tree.feature_importances_ * weights[i] * alpha
-
-def normalize(x):
-    return x/np.sum(x)
-
-def predict_proba_importances(X, BDTLIST):
-    output = []
-    for b in BDTLIST:
-        output.append(b.predict(X.reshape(1,-1))[0])
-
-    return output
-
-
-
-
-def plot_roc(true_y, proba_y):
-    plt.figure(figsize=(8,5))
-    false_pos, true_pos, _ = roc_curve(true_y, proba_y)
-    roc_auc = auc(false_pos, true_pos)
-
-    plt.plot(false_pos, true_pos)
-    plt.text(.6,.1,"AUC: " + str("%.4f" % roc_auc), fontsize=20)
-    plt.xlabel("false positive rate")
-    plt.ylabel("true positive rate")
-
-
-def plot_motif(motif, size=(8,5)):
-    motif_length = int(len(motif)/4)
-    optimal_beta = np.array([motif[4*i:4*i+4] for i in range(motif_length)])
-
-
-    plt.figure(figsize=size)
-    width = 0.2
-    plt.bar(left = np.arange(motif_length), height=optimal_beta[:,0], width=width, color='r', label="A")
-    plt.bar(left = np.arange(motif_length)+width, height=optimal_beta[:,1], width=width, color='b', label='C')
-    plt.bar(left = np.arange(motif_length)+width*2, height=optimal_beta[:,2], width=width, color='m', label='G')
-    plt.bar(left = np.arange(motif_length)+width*3, height=optimal_beta[:,3], width=width, color='g', label='T')
-    plt.xlabel("Position")
-
-    plt.legend(bbox_to_anchor=(1.1, 1.05))
+#
+#
+#def print_with_features(L, Features, ordered=False):
+#    if ordered==False:
+#        for i in range(len(features)):
+#            print(L[i], Features[i])
+#    else:
+#        print_with_features([L[x] for x in np.argsort(L)[::-1]],
+#                [Features[x] for x in np.argsort(L)[::-1]])
+#
+#def update_importances(importances, tree, weights, alpha):
+#    if len(importances) != len(weights):
+#        raise ValueError
+#    else:
+#        for i in range(len(importances)):
+#            importances[i] += tree.feature_importances_ * weights[i] * alpha
+#
+#def normalize(x):
+#    return x/np.sum(x)
+#
+#def predict_proba_importances(X, BDTLIST):
+#    output = []
+#    for b in BDTLIST:
+#        output.append(b.predict(X.reshape(1,-1))[0])
+#
+#    return output
+#
+#
+#def plot_roc(true_y, proba_y):
+#    plt.figure(figsize=(8,5))
+#    false_pos, true_pos, _ = roc_curve(true_y, proba_y)
+#    roc_auc = auc(false_pos, true_pos)
+#
+#    plt.plot(false_pos, true_pos)
+#    plt.text(.6,.1,"AUC: " + str("%.4f" % roc_auc), fontsize=20)
+#    plt.xlabel("false positive rate")
+#    plt.ylabel("true positive rate")
+#
+#
+#def plot_motif(motif, size=(8,5)):
+#    motif_length = int(len(motif)/4)
+#    optimal_beta = np.array([motif[4*i:4*i+4] for i in range(motif_length)])
+#
+#
+#    plt.figure(figsize=size)
+#    width = 0.2
+#    plt.bar(left = np.arange(motif_length), height=optimal_beta[:,0], width=width, color='r', label="A")
+#    plt.bar(left = np.arange(motif_length)+width, height=optimal_beta[:,1], width=width, color='b', label='C')
+#    plt.bar(left = np.arange(motif_length)+width*2, height=optimal_beta[:,2], width=width, color='m', label='G')
+#    plt.bar(left = np.arange(motif_length)+width*3, height=optimal_beta[:,3], width=width, color='g', label='T')
+#    plt.xlabel("Position")
+#
+#    plt.legend(bbox_to_anchor=(1.1, 1.05))
 
 
 
